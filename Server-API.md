@@ -4,6 +4,8 @@
 > Clients log in via `https://federation.concordiachat.com` and pass the resulting JWT to this server.  
 > This server stores **no passwords, no emails** — only Federation user IDs.
 
+**Last updated on:** Saturday, March 7, 2026 at 05:21:20
+
 Base URL (default): `http://localhost:3000`
 
 All request and response bodies are JSON.
@@ -16,7 +18,7 @@ Every protected endpoint (`🔒`) requires a Federation JWT in the `Authorizatio
 Authorization: Bearer <token>
 ```
 
-Tokens are obtained from the Federation (`POST /api/auth/login`). The server verifies them by forwarding to `GET /federation/api/user/me` and caches the result for 60 seconds.
+Tokens are obtained from the Federation (`POST /api/auth/login`). The server verifies them by forwarding to `GET /api/user/me` on the Federation and caches the result for 60 seconds.
 
 ---
 
@@ -28,7 +30,7 @@ Public. Returns server uptime status.
 
 **`200 OK`**
 ```json
-{ "status": "ok", "timestamp": "2026-03-07T12:00:00.000Z" }
+{ "status": "ok", "timestamp": "2026-03-07T05:21:20.000Z" }
 ```
 
 ---
@@ -68,14 +70,15 @@ Joins the authenticated user to this server. Call this when a user adds the serv
 
 ### `GET /api/server/members` 🔒
 
-Returns the list of users who have joined this server. Only user IDs and cached display names are stored — no personal information.
+Returns the list of users who have joined this server, including their role.
 
 **`200 OK`**
 ```json
 {
   "members": [
-    { "user_id": 1, "username": "petersmith", "joined_at": "2026-03-07T10:00:00.000Z" },
-    { "user_id": 2, "username": "alice",       "joined_at": "2026-03-07T10:05:00.000Z" }
+    { "user_id": 1, "username": "petersmith", "role": "admin",     "joined_at": "2026-03-07T10:00:00.000Z" },
+    { "user_id": 2, "username": "alice",       "role": "moderator", "joined_at": "2026-03-07T10:05:00.000Z" },
+    { "user_id": 3, "username": "bob",         "role": "member",    "joined_at": "2026-03-07T10:10:00.000Z" }
   ]
 }
 ```
@@ -84,25 +87,153 @@ Returns the list of users who have joined this server. Only user IDs and cached 
 
 ---
 
-## Channels — `/api/channels` 🔒
+### `PUT /api/server/members/:userId/role` 🔒 *(admin only)*
 
-### `GET /api/channels`
+Assigns a role to a member. The server config owner (`admin_user_id`) cannot be demoted.
 
-Returns all channels, ordered alphabetically.
+**Request body**
+
+| Field | Type | Values |
+|-------|------|--------|
+| `role` | string | `"member"` · `"moderator"` · `"admin"` |
+
+```json
+{ "role": "moderator" }
+```
+
+**`200 OK`**
+```json
+{ "member": { "user_id": 2, "username": "alice", "role": "moderator" } }
+```
+
+**`400`** Invalid role · **`401`** Unauthorized · **`403`** Not admin / cannot demote server owner · **`404`** Member not found · **`500`** Server error
+
+---
+
+## Roles
+
+Roles control what actions a user can perform on the server.
+
+| Role | Permissions |
+|------|-------------|
+| `member` | Read channels, read/send messages, join server |
+| `moderator` | All of the above + create channels, rename/reposition channels and categories |
+| `admin` | All of the above + create/delete categories, delete channels, assign roles to members |
+
+> The user whose `user_id` matches `admin_user_id` in `server.config.json` is **always** treated as admin, regardless of what is stored in the database.
+
+---
+
+## Categories — `/api/categories` 🔒
+
+Categories group channels in the sidebar (e.g. “Text Channels”, “Voice Channels”). Channels within a category are ordered by their `position` field.
+
+### `GET /api/categories`
+
+Returns all categories ordered by position.
 
 **`200 OK`**
 ```json
 [
-  { "id": 1, "name": "general",  "description": "General discussion", "created_at": "..." },
-  { "id": 2, "name": "off-topic", "description": null,                "created_at": "..." }
+  { "id": 1, "name": "Text Channels", "position": 0, "created_at": "..." },
+  { "id": 2, "name": "Staff Only",    "position": 1, "created_at": "..." }
 ]
 ```
 
 ---
 
-### `POST /api/channels` 🔒 *(admin only)*
+### `POST /api/categories` 🔒 *(admin only)*
 
-Creates a new channel. Only the server admin (set via `server.config.json`) may call this.
+Creates a new category.
+
+**Request body**
+
+| Field | Type | Rules |
+|-------|------|-------|
+| `name` | string | Required. 1–64 chars. |
+| `position` | number | Optional integer. Default `0`. |
+
+```json
+{ "name": "Staff Only", "position": 1 }
+```
+
+**`201 Created`**
+```json
+{ "id": 2, "name": "Staff Only", "position": 1, "created_at": "..." }
+```
+
+**`400`** Validation failed · **`401`** Unauthorized · **`403`** Not admin · **`500`** Server error
+
+---
+
+### `PATCH /api/categories/:id` 🔒 *(moderator or admin)*
+
+Renames or repositions a category. Only the fields you include are changed.
+
+**Request body** — all fields optional
+
+| Field | Type | Rules |
+|-------|------|-------|
+| `name` | string | 1–64 chars. |
+| `position` | number | Integer. |
+
+```json
+{ "position": 2 }
+```
+
+**`200 OK`** Returns updated category object.
+
+**`400`** Validation failed · **`401`** Unauthorized · **`403`** Insufficient permissions · **`404`** Category not found · **`500`** Server error
+
+---
+
+### `DELETE /api/categories/:id` 🔒 *(admin only)*
+
+Deletes a category. Channels inside it become uncategorized (`category_id` → `null`) — they are **not** deleted.
+
+**`204 No Content`**
+
+**`401`** Unauthorized · **`403`** Not admin · **`404`** Category not found · **`500`** Server error
+
+---
+
+## Channels — `/api/channels` 🔒
+
+### `GET /api/channels`
+
+Returns all channels with their category info, ordered by category position then channel position.
+
+**`200 OK`**
+```json
+[
+  {
+    "id": 1,
+    "name": "general",
+    "description": "General discussion",
+    "category_id": 1,
+    "category_name": "Text Channels",
+    "category_position": 0,
+    "position": 0,
+    "created_at": "..."
+  },
+  {
+    "id": 2,
+    "name": "announcements",
+    "description": null,
+    "category_id": 1,
+    "category_name": "Text Channels",
+    "category_position": 0,
+    "position": 1,
+    "created_at": "..."
+  }
+]
+```
+
+---
+
+### `POST /api/channels` 🔒 *(moderator or admin)*
+
+Creates a new channel.
 
 **Request body**
 
@@ -110,27 +241,52 @@ Creates a new channel. Only the server admin (set via `server.config.json`) may 
 |-------|------|-------|
 | `name` | string | Required. 1–64 chars. |
 | `description` | string | Optional. |
+| `category_id` | number | Optional. ID of an existing category. |
+| `position` | number | Optional integer. Default `0`. |
 
 ```json
-{ "name": "random", "description": "Off-topic chat" }
+{ "name": "random", "description": "Off-topic chat", "category_id": 1, "position": 2 }
 ```
 
 **`201 Created`**
 ```json
-{ "id": 3, "name": "random", "description": "Off-topic chat", "created_at": "..." }
+{ "id": 3, "name": "random", "description": "Off-topic chat", "category_id": 1, "position": 2, "created_at": "..." }
 ```
 
-**`400`** Validation failed · **`401`** Unauthorized · **`403`** Not server admin · **`409`** Name taken · **`500`** Server error
+**`400`** Validation failed · **`401`** Unauthorized · **`403`** Insufficient permissions · **`409`** Name taken · **`500`** Server error
+
+---
+
+### `PATCH /api/channels/:id` 🔒 *(moderator or admin)*
+
+Updates a channel's name, description, category, or position. Only the fields you include are changed. Use this to move a channel between categories or reorder it within one.
+
+**Request body** — all fields optional
+
+| Field | Type | Rules |
+|-------|------|-------|
+| `name` | string | 1–64 chars. |
+| `description` | string \| null | Pass `null` to clear. |
+| `category_id` | number \| null | Pass `null` to uncategorize. |
+| `position` | number | Integer. |
+
+```json
+{ "category_id": 2, "position": 0 }
+```
+
+**`200 OK`** Returns updated channel object.
+
+**`400`** Validation failed · **`401`** Unauthorized · **`403`** Insufficient permissions · **`404`** Channel not found · **`409`** Name taken · **`500`** Server error
 
 ---
 
 ### `DELETE /api/channels/:id` 🔒 *(admin only)*
 
-Deletes a channel and all its messages. Only the server admin may call this.
+Deletes a channel and all its messages.
 
 **`204 No Content`**
 
-**`401`** Unauthorized · **`403`** Not server admin · **`404`** Channel not found · **`500`** Server error
+**`401`** Unauthorized · **`403`** Not admin · **`404`** Channel not found · **`500`** Server error
 
 ---
 
@@ -178,7 +334,7 @@ The server runs Socket.IO on the same port as the HTTP server.
 
 ### Connection
 
-Pass the Federation JWT in the `auth` handshake:
+Pass the Federation JWT in the `auth` handshake. The server verifies it against the Federation and automatically upserts the user into `members` with their latest display name.
 
 ```ts
 import { io } from 'socket.io-client';
@@ -191,8 +347,6 @@ const socket = io('http://localhost:3000', {
 socket.on('connect', () => console.log('connected:', socket.id));
 socket.on('connect_error', (err) => console.error('auth failed:', err.message));
 ```
-
-On connect the server automatically upserts the user into `members` with their latest display name from the Federation.
 
 ---
 
@@ -286,7 +440,7 @@ socket.on('error', ({ message }) => console.error('Server error:', message));
 
 ## Admin setup
 
-The server admin is the user who can create and delete channels. Set your Federation user ID in `server.config.json` at the project root:
+Set your Federation user ID in `server.config.json` at the project root:
 
 ```json
 {
@@ -297,7 +451,7 @@ The server admin is the user who can create and delete channels. Set your Federa
 ```
 
 Alternatively, set the `ADMIN_USER_ID` environment variable.  
-If `admin_user_id` is `0` (default), the server will warn on startup and channel management will be locked.
+If `admin_user_id` is `0` (default), the server will warn on startup and all privileged actions will be locked.
 
 ---
 
@@ -321,7 +475,12 @@ If `admin_user_id` is `0` (default), the server will warn on startup and channel
 
 The Postgres schema is initialised automatically via `migrations/001_initial.sql` when the DB volume is first created.
 
-**Upgrading an existing DB** (original `users` table schema): run `migrations/002_federation_auth.sql` manually.
+**Upgrading an existing DB:**
+
+| From schema | Migration to run |
+|-------------|------------------|
+| Original (`users` table) | `002_federation_auth.sql` |
+| Post-federation (no categories/roles) | `003_categories_roles.sql` |
 
 **Fresh start** (drops all data):
 ```bash

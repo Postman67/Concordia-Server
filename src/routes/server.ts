@@ -1,7 +1,8 @@
 import { Router } from 'express';
 import { pool } from '../config/database';
 import { authenticate, AuthRequest } from '../middleware/auth';
-import { getServerConfig } from '../config/server';
+import { getServerConfig, isAdmin } from '../config/server';
+import { requireRole } from '../middleware/roles';
 
 const router = Router();
 
@@ -47,11 +48,11 @@ router.post('/join', authenticate, async (req: AuthRequest, res) => {
   }
 });
 
-// GET /api/server/members — lists member user IDs (no personal data beyond cached username)
+// GET /api/server/members — lists members with their roles
 router.get('/members', authenticate, async (_req, res) => {
   try {
     const result = await pool.query(
-      'SELECT user_id, username, joined_at FROM members ORDER BY joined_at',
+      'SELECT user_id, username, role, joined_at FROM members ORDER BY joined_at',
     );
     res.json({ members: result.rows });
   } catch (err) {
@@ -59,5 +60,46 @@ router.get('/members', authenticate, async (_req, res) => {
     res.status(500).json({ error: 'Internal server error' });
   }
 });
+
+// PUT /api/server/members/:userId/role — assign a role to a member (admin only)
+router.put(
+  '/members/:userId/role',
+  authenticate,
+  requireRole('admin'),
+  async (req: AuthRequest, res) => {
+    const targetId = parseInt(req.params.userId, 10);
+    if (isNaN(targetId)) {
+      res.status(400).json({ error: 'Invalid user id' });
+      return;
+    }
+
+    const { role } = req.body as { role?: string };
+    if (!role || !['member', 'moderator', 'admin'].includes(role)) {
+      res.status(400).json({ error: 'role must be member, moderator, or admin' });
+      return;
+    }
+
+    // Prevent demoting the server config owner
+    if (isAdmin(targetId) && role !== 'admin') {
+      res.status(403).json({ error: 'Cannot change the role of the server owner' });
+      return;
+    }
+
+    try {
+      const result = await pool.query(
+        'UPDATE members SET role = $1 WHERE user_id = $2 RETURNING user_id, username, role',
+        [role, targetId],
+      );
+      if (result.rows.length === 0) {
+        res.status(404).json({ error: 'Member not found' });
+        return;
+      }
+      res.json({ member: result.rows[0] });
+    } catch (err) {
+      console.error('[server/members/role]', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  },
+);
 
 export default router;

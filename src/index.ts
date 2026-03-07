@@ -10,6 +10,7 @@ import { pool } from './config/database';
 import { getServerConfig } from './config/server';
 import { initializeSocket } from './socket';
 import serverRoutes from './routes/server';
+import categoryRoutes from './routes/categories';
 import channelRoutes from './routes/channels';
 import messageRoutes from './routes/messages';
 
@@ -35,6 +36,7 @@ app.use(
 
 // ── REST routes ───────────────────────────────────────────────────────────────
 app.use('/api/server', serverRoutes);
+app.use('/api/categories', categoryRoutes);
 app.use('/api/channels', channelRoutes);
 app.use('/api/messages', messageRoutes);
 
