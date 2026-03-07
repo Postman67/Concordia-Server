@@ -22,8 +22,9 @@ router.get('/', authenticate, async (_req, res) => {
   }
 });
 
-// POST /api/channels — create a channel (moderator or admin)
-router.post('/', authenticate, requireRole('moderator'), async (req: AuthRequest, res) => {
+// POST /api/channels — create a channel (admin only)
+// position is auto-assigned (appended to end of category) unless explicitly provided.
+router.post('/', authenticate, requireRole('admin'), async (req: AuthRequest, res) => {
   const { name, description, category_id, position } = req.body as {
     name?: string;
     description?: string;
@@ -47,8 +48,19 @@ router.post('/', authenticate, requireRole('moderator'), async (req: AuthRequest
       return;
     }
 
-    const pos = typeof position === 'number' ? position : 0;
     const catId = typeof category_id === 'number' ? category_id : null;
+
+    let pos: number;
+    if (typeof position === 'number' && Number.isInteger(position)) {
+      pos = position;
+    } else {
+      // Append to the end of whatever category this channel is going into
+      const maxResult = await pool.query(
+        'SELECT COALESCE(MAX(position), -1) AS max FROM channels WHERE category_id IS NOT DISTINCT FROM $1',
+        [catId],
+      );
+      pos = (maxResult.rows[0].max as number) + 1;
+    }
 
     const result = await pool.query(
       `INSERT INTO channels (name, description, category_id, position, created_by)
@@ -60,6 +72,59 @@ router.post('/', authenticate, requireRole('moderator'), async (req: AuthRequest
   } catch (err) {
     console.error('[channels/create]', err);
     res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// PUT /api/channels/reorder — atomically reposition channels, optionally moving between categories (admin only)
+// Body: array of { id: number, category_id: number | null, position: number }
+// The client sends the full desired layout after a drag-and-drop. All changes are
+// applied inside a single transaction so the sidebar never shows a partial state.
+router.put('/reorder', authenticate, requireRole('admin'), async (req: AuthRequest, res) => {
+  const items = req.body as unknown;
+
+  if (!Array.isArray(items) || items.length === 0) {
+    res.status(400).json({ error: 'Body must be a non-empty array of { id, category_id, position }' });
+    return;
+  }
+
+  for (const item of items) {
+    const i = item as Record<string, unknown>;
+    if (
+      typeof item !== 'object' || item === null ||
+      !Number.isInteger(i.id) ||
+      !Number.isInteger(i.position) ||
+      (i.category_id !== null && !Number.isInteger(i.category_id))
+    ) {
+      res.status(400).json({ error: 'Each item must have integer id, position, and category_id (integer or null)' });
+      return;
+    }
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    for (const item of items as Array<{ id: number; category_id: number | null; position: number }>) {
+      await client.query(
+        'UPDATE channels SET category_id = $1, position = $2 WHERE id = $3',
+        [item.category_id, item.position, item.id],
+      );
+    }
+    await client.query('COMMIT');
+
+    const updated = await pool.query(
+      `SELECT c.id, c.name, c.description, c.category_id, c.position, c.created_at,
+              cat.name AS category_name, cat.position AS category_position
+       FROM channels c
+       LEFT JOIN categories cat ON cat.id = c.category_id
+       ORDER BY COALESCE(cat.position, 999999), c.position, c.name`,
+    );
+    res.json(updated.rows);
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('[channels/reorder]', err);
+    res.status(500).json({ error: 'Internal server error' });
+  } finally {
+    client.release();
   }
 });
 

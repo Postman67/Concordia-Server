@@ -19,6 +19,7 @@ router.get('/', authenticate, async (_req, res) => {
 });
 
 // POST /api/categories — create a category (admin only)
+// position is auto-assigned (appended to end) unless explicitly provided.
 router.post('/', authenticate, requireRole('admin'), async (req: AuthRequest, res) => {
   const { name, position } = req.body as { name?: string; position?: number };
 
@@ -27,9 +28,15 @@ router.post('/', authenticate, requireRole('admin'), async (req: AuthRequest, re
     return;
   }
 
-  const pos = typeof position === 'number' ? position : 0;
-
   try {
+    let pos: number;
+    if (typeof position === 'number' && Number.isInteger(position)) {
+      pos = position;
+    } else {
+      const maxResult = await pool.query('SELECT COALESCE(MAX(position), -1) AS max FROM categories');
+      pos = (maxResult.rows[0].max as number) + 1;
+    }
+
     const result = await pool.query(
       'INSERT INTO categories (name, position) VALUES ($1, $2) RETURNING id, name, position, created_at',
       [name, pos],
@@ -38,6 +45,53 @@ router.post('/', authenticate, requireRole('admin'), async (req: AuthRequest, re
   } catch (err) {
     console.error('[categories/create]', err);
     res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// PUT /api/categories/reorder — atomically reposition all categories (admin only)
+// Body: array of { id: number, position: number }
+// The client sends the full desired order (e.g. after a drag-and-drop), and the
+// server applies all changes inside a single transaction.
+router.put('/reorder', authenticate, requireRole('admin'), async (req: AuthRequest, res) => {
+  const items = req.body as unknown;
+
+  if (!Array.isArray(items) || items.length === 0) {
+    res.status(400).json({ error: 'Body must be a non-empty array of { id, position }' });
+    return;
+  }
+
+  for (const item of items) {
+    if (
+      typeof item !== 'object' || item === null ||
+      !Number.isInteger((item as Record<string, unknown>).id) ||
+      !Number.isInteger((item as Record<string, unknown>).position)
+    ) {
+      res.status(400).json({ error: 'Each item must have integer id and position' });
+      return;
+    }
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    for (const item of items as Array<{ id: number; position: number }>) {
+      await client.query('UPDATE categories SET position = $1 WHERE id = $2', [
+        item.position,
+        item.id,
+      ]);
+    }
+    await client.query('COMMIT');
+
+    const updated = await pool.query(
+      'SELECT id, name, position, created_at FROM categories ORDER BY position, name',
+    );
+    res.json(updated.rows);
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('[categories/reorder]', err);
+    res.status(500).json({ error: 'Internal server error' });
+  } finally {
+    client.release();
   }
 });
 
