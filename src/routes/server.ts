@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { pool } from '../config/database';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { getSettings, updateSettings, isAdmin } from '../config/server';
-import { requireRole } from '../middleware/roles';
+import { requireRole, getMemberRole } from '../middleware/roles';
 
 const router = Router();
 
@@ -39,13 +39,45 @@ router.post('/join', authenticate, async (req: AuthRequest, res) => {
       [id, username],
     );
 
-    const config = await getSettings();
+    const [config, role] = await Promise.all([
+      getSettings(),
+      getMemberRole(id),
+    ]);
     res.status(200).json({
       message: 'Joined server successfully.',
+      role,
       server: { name: config.name, description: config.description },
     });
   } catch (err) {
     console.error('[server/join]', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// GET /api/server/@me — returns the authenticated user's member record and effective role
+// The client should call this on connect (or after admin settings change) to get
+// the current user's role without having to re-join the server.
+router.get('/@me', authenticate, async (req: AuthRequest, res) => {
+  const { id } = req.user!;
+  try {
+    const [row, role] = await Promise.all([
+      pool.query(
+        'SELECT user_id, username, role, joined_at FROM members WHERE user_id = $1',
+        [id],
+      ),
+      getMemberRole(id),
+    ]);
+
+    if (row.rows.length === 0) {
+      res.status(404).json({ error: 'Not a member of this server' });
+      return;
+    }
+
+    // effective_role may differ from the stored role when the user is the
+    // configured admin (env var / server_settings override).
+    res.json({ ...row.rows[0], effective_role: role });
+  } catch (err) {
+    console.error('[server/@me]', err);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

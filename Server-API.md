@@ -4,7 +4,7 @@
 > Clients log in via `https://federation.concordiachat.com` and pass the resulting JWT to this server.  
 > This server stores **no passwords, no emails** — only Federation user IDs.
 
-**Last updated on:** Saturday, March 7, 2026 at 15:09:19
+**Last updated on:** Saturday, March 7, 2026 at 15:33:51
 
 > **User IDs are UUIDs** (e.g. `"a3f8c21d-7e44-4b1c-9f02-3d5e6a8b1c0f"`). The Federation issues these on registration.
 
@@ -62,11 +62,35 @@ Joins the authenticated user to this server. Call this when a user adds the serv
 ```json
 {
   "message": "Joined server successfully.",
+  "role": "admin",
   "server": { "name": "My Concordia Server", "description": "A place to chat." }
 }
 ```
 
+> `role` is the caller's **effective role** on this server (`"member"`, `"moderator"`, or `"admin"`). Use this value to decide whether to show the server settings UI.
+
 **`401`** Missing/invalid federation token · **`500`** Server error
+
+---
+
+### `GET /api/server/@me` 🔒
+
+Returns the authenticated user's member record and effective role on this server. Call this on client startup (after the initial join) or whenever you need to refresh the user's permissions — for example, after an admin changes `admin_user_id` via `PATCH /api/server/settings`.
+
+**`200 OK`**
+```json
+{
+  "user_id": "a3f8c21d-7e44-4b1c-9f02-3d5e6a8b1c0f",
+  "username": "petersmith",
+  "role": "member",
+  "effective_role": "admin",
+  "joined_at": "2026-03-07T10:00:00.000Z"
+}
+```
+
+> `role` is the value stored in the database. `effective_role` is what the server actually enforces — it may be `"admin"` even if `role` is `"member"` when the user matches `admin_user_id` in server settings.
+
+**`401`** Missing/invalid federation token · **`404`** Not a member of this server · **`500`** Server error
 
 ---
 
