@@ -7,8 +7,9 @@ import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 
 import { pool } from './config/database';
+import { getServerConfig } from './config/server';
 import { initializeSocket } from './socket';
-import authRoutes from './routes/auth';
+import serverRoutes from './routes/server';
 import channelRoutes from './routes/channels';
 import messageRoutes from './routes/messages';
 
@@ -33,7 +34,7 @@ app.use(
 );
 
 // ── REST routes ───────────────────────────────────────────────────────────────
-app.use('/api/auth', authRoutes);
+app.use('/api/server', serverRoutes);
 app.use('/api/channels', channelRoutes);
 app.use('/api/messages', messageRoutes);
 
@@ -56,8 +57,13 @@ async function start(): Promise<void> {
     process.exit(1);
   }
 
+  const config = getServerConfig();
   httpServer.listen(PORT, () => {
-    console.log(`[server] Concordia listening on port ${PORT}`);
+    console.log(`[server] "${config.name}" listening on port ${PORT}`);
+    console.log(`[server] federation: ${process.env.FEDERATION_URL || 'https://federation.concordiachat.com'}`);
+    if (config.admin_user_id === 0) {
+      console.warn('[server] WARNING: admin_user_id is not set in server.config.json');
+    }
   });
 }
 

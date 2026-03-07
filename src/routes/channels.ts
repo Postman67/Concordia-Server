@@ -1,10 +1,11 @@
 import { Router } from 'express';
 import { pool } from '../config/database';
 import { authenticate, AuthRequest } from '../middleware/auth';
+import { isAdmin } from '../config/server';
 
 const router = Router();
 
-// GET /api/channels — list all channels
+// GET /api/channels — list all channels (any authenticated user)
 router.get('/', authenticate, async (_req, res) => {
   try {
     const result = await pool.query(
@@ -17,8 +18,13 @@ router.get('/', authenticate, async (_req, res) => {
   }
 });
 
-// POST /api/channels — create a channel
+// POST /api/channels — create a channel (admin only)
 router.post('/', authenticate, async (req: AuthRequest, res) => {
+  if (!isAdmin(req.user!.id)) {
+    res.status(403).json({ error: 'Only the server admin can create channels' });
+    return;
+  }
+
   const { name, description } = req.body as {
     name?: string;
     description?: string;
@@ -56,21 +62,22 @@ router.post('/', authenticate, async (req: AuthRequest, res) => {
   }
 });
 
-// DELETE /api/channels/:id — delete your own channel
+// DELETE /api/channels/:id — delete a channel (admin only)
 router.delete('/:id', authenticate, async (req: AuthRequest, res) => {
+  if (!isAdmin(req.user!.id)) {
+    res.status(403).json({ error: 'Only the server admin can delete channels' });
+    return;
+  }
+
   const id = parseInt(req.params.id, 10);
 
   try {
     const result = await pool.query(
-      'SELECT created_by FROM channels WHERE id = $1',
+      'SELECT id FROM channels WHERE id = $1',
       [id],
     );
     if (result.rows.length === 0) {
       res.status(404).json({ error: 'Channel not found' });
-      return;
-    }
-    if (result.rows[0].created_by !== req.user!.id) {
-      res.status(403).json({ error: 'Only the channel owner can delete it' });
       return;
     }
 

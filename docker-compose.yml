@@ -31,7 +31,10 @@ services:
       DB_NAME: concordia
       DB_USER: concordia
       DB_PASSWORD: ${DB_PASSWORD}
-      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set in .env}
+      # URL of the Federation (override for local/self-hosted Federation instances)
+      FEDERATION_URL: ${FEDERATION_URL:-https://federation.concordiachat.com}
+      # Federation user ID of the server owner — can also be set in server.config.json
+      ADMIN_USER_ID: ${ADMIN_USER_ID:-0}
       CLIENT_ORIGIN: ${CLIENT_ORIGIN:-*}
     depends_on:
       db:

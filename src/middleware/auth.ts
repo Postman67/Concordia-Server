@@ -1,15 +1,61 @@
 import { Request, Response, NextFunction } from 'express';
-import jwt from 'jsonwebtoken';
 
 export interface AuthRequest extends Request {
   user?: { id: number; username: string };
 }
 
-export function authenticate(
+// ── Federation token verification ─────────────────────────────────────────────
+// The server does NOT hold any JWT secret. It verifies every token by calling
+// the Federation's /api/user/me endpoint and caches the result for CACHE_TTL_MS
+// to avoid a round-trip on every single request.
+
+const FEDERATION_URL =
+  process.env.FEDERATION_URL || 'https://federation.concordiachat.com';
+
+const CACHE_TTL_MS = 60_000; // 1 minute
+
+interface CacheEntry {
+  user: { id: number; username: string };
+  expiresAt: number;
+}
+
+const tokenCache = new Map<string, CacheEntry>();
+
+export async function verifyFederationToken(
+  token: string,
+): Promise<{ id: number; username: string } | null> {
+  const cached = tokenCache.get(token);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.user;
+  }
+
+  try {
+    const res = await fetch(`${FEDERATION_URL}/api/user/me`, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(5_000),
+    });
+
+    if (!res.ok) {
+      tokenCache.delete(token);
+      return null;
+    }
+
+    const data = (await res.json()) as { user: { id: number; username: string } };
+    const user = { id: data.user.id, username: data.user.username };
+    tokenCache.set(token, { user, expiresAt: Date.now() + CACHE_TTL_MS });
+    return user;
+  } catch {
+    return null;
+  }
+}
+
+// ── HTTP middleware ────────────────────────────────────────────────────────────
+
+export async function authenticate(
   req: AuthRequest,
   res: Response,
   next: NextFunction,
-): void {
+): Promise<void> {
   const authHeader = req.headers.authorization;
   if (!authHeader?.startsWith('Bearer ')) {
     res.status(401).json({ error: 'Missing or invalid Authorization header' });
@@ -17,14 +63,13 @@ export function authenticate(
   }
 
   const token = authHeader.substring(7);
-  try {
-    const payload = jwt.verify(token, process.env.JWT_SECRET as string) as {
-      id: number;
-      username: string;
-    };
-    req.user = { id: payload.id, username: payload.username };
-    next();
-  } catch {
-    res.status(401).json({ error: 'Invalid or expired token' });
+  const user = await verifyFederationToken(token);
+
+  if (!user) {
+    res.status(401).json({ error: 'Invalid or expired federation token' });
+    return;
   }
+
+  req.user = user;
+  next();
 }

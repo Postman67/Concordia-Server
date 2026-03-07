@@ -1,25 +1,38 @@
 import { Server } from 'socket.io';
-import jwt from 'jsonwebtoken';
+import { pool } from '../config/database';
+import { verifyFederationToken } from '../middleware/auth';
 import { registerChatHandlers } from './handlers';
 
 export function initializeSocket(io: Server): void {
-  // Authenticate every Socket.IO connection with a Bearer JWT
-  io.use((socket, next) => {
+  // Verify every Socket.IO connection against the Federation.
+  // Uses the same in-memory token cache as the HTTP middleware, so a user
+  // who just called a REST endpoint will connect instantly without a round-trip.
+  io.use(async (socket, next) => {
     const token = socket.handshake.auth?.token as string | undefined;
     if (!token) {
       return next(new Error('Authentication required'));
     }
-    try {
-      const payload = jwt.verify(
-        token,
-        process.env.JWT_SECRET as string,
-      ) as { id: number; username: string };
 
-      socket.data.user = { id: payload.id, username: payload.username };
-      next();
-    } catch {
-      next(new Error('Invalid token'));
+    const user = await verifyFederationToken(token);
+    if (!user) {
+      return next(new Error('Invalid or expired federation token'));
     }
+
+    socket.data.user = user;
+
+    // Refresh the member's cached username on every fresh connection
+    try {
+      await pool.query(
+        `INSERT INTO members (user_id, username)
+         VALUES ($1, $2)
+         ON CONFLICT (user_id) DO UPDATE SET username = EXCLUDED.username`,
+        [user.id, user.username],
+      );
+    } catch (err) {
+      console.error('[socket] member upsert failed:', err);
+    }
+
+    next();
   });
 
   io.on('connection', (socket) => {

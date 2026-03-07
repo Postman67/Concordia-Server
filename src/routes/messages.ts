@@ -32,9 +32,9 @@ router.get('/:channelId', authenticate, async (req, res) => {
     if (before) {
       const result = await pool.query(
         `SELECT m.id, m.content, m.created_at,
-                u.id AS user_id, u.username
+                m.user_id, COALESCE(mem.username, m.user_id::text) AS username
          FROM messages m
-         JOIN users u ON u.id = m.user_id
+         LEFT JOIN members mem ON mem.user_id = m.user_id
          WHERE m.channel_id = $1 AND m.created_at < $2
          ORDER BY m.created_at DESC
          LIMIT $3`,
@@ -44,9 +44,9 @@ router.get('/:channelId', authenticate, async (req, res) => {
     } else {
       const result = await pool.query(
         `SELECT m.id, m.content, m.created_at,
-                u.id AS user_id, u.username
+                m.user_id, COALESCE(mem.username, m.user_id::text) AS username
          FROM messages m
-         JOIN users u ON u.id = m.user_id
+         LEFT JOIN members mem ON mem.user_id = m.user_id
          WHERE m.channel_id = $1
          ORDER BY m.created_at DESC
          LIMIT $2`,
