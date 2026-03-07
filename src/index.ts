@@ -49,6 +49,7 @@ initializeSocket(io);
 
 // ── Start ─────────────────────────────────────────────────────────────────────
 const PORT = parseInt(process.env.PORT || '3000', 10);
+const HOST = process.env.HOST || '0.0.0.0';
 
 async function start(): Promise<void> {
   try {
@@ -60,8 +61,8 @@ async function start(): Promise<void> {
   }
 
   const config = getServerConfig();
-  httpServer.listen(PORT, () => {
-    console.log(`[server] "${config.name}" listening on port ${PORT}`);
+  httpServer.listen(PORT, HOST, () => {
+    console.log(`[server] "${config.name}" listening on ${HOST}:${PORT}`);
     console.log(`[server] federation: ${process.env.FEDERATION_URL || 'https://federation.concordiachat.com'}`);
     if (config.admin_user_id === 0) {
       console.warn('[server] WARNING: admin_user_id is not set in server.config.json');
