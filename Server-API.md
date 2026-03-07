@@ -4,7 +4,7 @@
 > Clients log in via `https://federation.concordiachat.com` and pass the resulting JWT to this server.  
 > This server stores **no passwords, no emails** — only Federation user IDs.
 
-**Last updated on:** Saturday, March 7, 2026 at 15:41:06
+**Last updated on:** Saturday, March 7, 2026 at 15:52:10
 
 > **User IDs are UUIDs** (e.g. `"a3f8c21d-7e44-4b1c-9f02-3d5e6a8b1c0f"`). The Federation issues these on registration.
 
@@ -84,6 +84,7 @@ Returns the authenticated user's member record and effective role on this server
   "username": "petersmith",
   "role": "member",
   "effective_role": "admin",
+  "avatar_url": "https://example.com/avatar.png",
   "joined_at": "2026-03-07T10:00:00.000Z"
 }
 ```
@@ -102,9 +103,9 @@ Returns the list of users who have joined this server, including their role.
 ```json
 {
   "members": [
-    { "user_id": "a3f8c21d-7e44-4b1c-9f02-3d5e6a8b1c0f", "username": "petersmith", "role": "admin",     "joined_at": "2026-03-07T10:00:00.000Z" },
-    { "user_id": "b1c2d3e4-1234-5678-9abc-def012345678", "username": "alice",       "role": "moderator", "joined_at": "2026-03-07T10:05:00.000Z" },
-    { "user_id": "c3d4e5f6-abcd-ef01-2345-678901234567", "username": "bob",         "role": "member",    "joined_at": "2026-03-07T10:10:00.000Z" }
+    { "user_id": "a3f8c21d-7e44-4b1c-9f02-3d5e6a8b1c0f", "username": "petersmith", "role": "admin",     "avatar_url": "https://example.com/avatar.png", "joined_at": "2026-03-07T10:00:00.000Z" },
+    { "user_id": "b1c2d3e4-1234-5678-9abc-def012345678", "username": "alice",       "role": "moderator", "avatar_url": null,                                "joined_at": "2026-03-07T10:05:00.000Z" },
+    { "user_id": "c3d4e5f6-abcd-ef01-2345-678901234567", "username": "bob",         "role": "member",    "avatar_url": null,                                "joined_at": "2026-03-07T10:10:00.000Z" }
   ]
 }
 ```
@@ -129,7 +130,7 @@ Assigns a role to a member. The configured admin (`admin_user_id`) cannot be dem
 
 **`200 OK`**
 ```json
-{ "member": { "user_id": "b1c2d3e4-1234-5678-9abc-def012345678", "username": "alice", "role": "moderator" } }
+{ "member": { "user_id": "b1c2d3e4-1234-5678-9abc-def012345678", "username": "alice", "role": "moderator", "avatar_url": null } }
 ```
 
 **`400`** Invalid role · **`401`** Unauthorized · **`403`** Not admin / cannot demote server owner · **`404`** Member not found · **`500`** Server error
@@ -421,7 +422,8 @@ Fetches message history for a channel. Returns messages in **chronological order
     "content": "Hello world!",
     "created_at": "2026-03-07T11:00:00.000Z",
     "user_id": "a3f8c21d-7e44-4b1c-9f02-3d5e6a8b1c0f",
-    "username": "petersmith"
+    "username": "petersmith",
+    "avatar_url": "https://example.com/avatar.png"
   }
 ]
 ```
@@ -469,7 +471,7 @@ Join a channel room to receive real-time messages.
 | Direction | Event | Payload |
 |-----------|-------|---------|
 | Server → caller | `channel:joined` | `{ channelId, name }` |
-| Server → others in room | `user:joined` | `{ channelId, user: { id, username } }` |
+| Server → others in room | `user:joined` | `{ channelId, user: { id, username, avatar_url } }` |
 
 ```ts
 socket.emit('channel:join', 1);
@@ -486,7 +488,7 @@ Leave a channel room.
 
 | Direction | Event | Payload |
 |-----------|-------|---------|
-| Server → others in room | `user:left` | `{ channelId, user: { id, username } }` |
+| Server → others in room | `user:left` | `{ channelId, user: { id, username, avatar_url } }` |
 
 ```ts
 socket.emit('channel:leave', 1);
@@ -502,7 +504,7 @@ Send a message. The client must have joined the channel first. Content is 1–20
 
 | Direction | Event | Payload |
 |-----------|-------|---------|
-| Server → everyone in room | `message:new` | `{ id, channelId, content, createdAt, user: { id, username } }` |
+| Server → everyone in room | `message:new` | `{ id, channelId, content, createdAt, user: { id, username, avatar_url } }` |
 
 ```ts
 socket.emit('message:send', { channelId: 1, content: 'Hello!' });

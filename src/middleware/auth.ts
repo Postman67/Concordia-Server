@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 
 export interface AuthRequest extends Request {
-  user?: { id: string; username: string };
+  user?: { id: string; username: string; avatar_url: string | null };
 }
 
 // ── Federation token verification ─────────────────────────────────────────────
@@ -15,7 +15,7 @@ const FEDERATION_URL =
 const CACHE_TTL_MS = 60_000; // 1 minute
 
 interface CacheEntry {
-  user: { id: string; username: string };
+  user: { id: string; username: string; avatar_url: string | null };
   expiresAt: number;
 }
 
@@ -23,7 +23,7 @@ const tokenCache = new Map<string, CacheEntry>();
 
 export async function verifyFederationToken(
   token: string,
-): Promise<{ id: string; username: string } | null> {
+): Promise<{ id: string; username: string; avatar_url: string | null } | null> {
   const cached = tokenCache.get(token);
   if (cached && cached.expiresAt > Date.now()) {
     return cached.user;
@@ -40,8 +40,12 @@ export async function verifyFederationToken(
       return null;
     }
 
-    const data = (await res.json()) as { user: { id: string; username: string } };
-    const user = { id: data.user.id, username: data.user.username };
+    const data = (await res.json()) as { user: { id: string; username: string; avatar_url?: string | null } };
+    const user = {
+      id: data.user.id,
+      username: data.user.username,
+      avatar_url: data.user.avatar_url ?? null,
+    };
     tokenCache.set(token, { user, expiresAt: Date.now() + CACHE_TTL_MS });
     return user;
   } catch {

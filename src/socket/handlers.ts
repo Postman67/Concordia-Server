@@ -8,6 +8,7 @@ import { pool } from '../config/database';
 interface User {
   id: string;
   username: string;
+  avatar_url: string | null;
 }
 
 interface MessageSendPayload {
@@ -58,7 +59,7 @@ export function registerChatHandlers(io: Server, socket: Socket): void {
       });
       socket.to(roomName(id)).emit('user:joined', {
         channelId: id,
-        user: { id: user.id, username: user.username },
+        user: { id: user.id, username: user.username, avatar_url: user.avatar_url },
       });
     } catch (err) {
       console.error('[socket] channel:join', err);
@@ -75,7 +76,7 @@ export function registerChatHandlers(io: Server, socket: Socket): void {
     socket.leave(roomName(id));
     socket.to(roomName(id)).emit('user:left', {
       channelId: id,
-      user: { id: user.id, username: user.username },
+      user: { id: user.id, username: user.username, avatar_url: user.avatar_url },
     });
   });
 
@@ -125,7 +126,7 @@ export function registerChatHandlers(io: Server, socket: Socket): void {
         channelId,
         content: trimmed,
         createdAt: result.rows[0].created_at,
-        user: { id: user.id, username: user.username },
+        user: { id: user.id, username: user.username, avatar_url: user.avatar_url },
       });
     } catch (err) {
       console.error('[socket] message:send', err);

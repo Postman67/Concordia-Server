@@ -29,14 +29,14 @@ router.get('/info', async (_req, res) => {
 // when a user first opens a server from their Federation server list.
 // Subsequent calls are idempotent (username cache is refreshed).
 router.post('/join', authenticate, async (req: AuthRequest, res) => {
-  const { id, username } = req.user!;
+  const { id, username, avatar_url } = req.user!;
 
   try {
     await pool.query(
-      `INSERT INTO members (user_id, username)
-       VALUES ($1, $2)
-       ON CONFLICT (user_id) DO UPDATE SET username = EXCLUDED.username`,
-      [id, username],
+      `INSERT INTO members (user_id, username, avatar_url)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (user_id) DO UPDATE SET username = EXCLUDED.username, avatar_url = EXCLUDED.avatar_url`,
+      [id, username, avatar_url],
     );
 
     const [config, role] = await Promise.all([
@@ -62,7 +62,7 @@ router.get('/@me', authenticate, async (req: AuthRequest, res) => {
   try {
     const [row, role] = await Promise.all([
       pool.query(
-        'SELECT user_id, username, role, joined_at FROM members WHERE user_id = $1',
+        'SELECT user_id, username, avatar_url, role, joined_at FROM members WHERE user_id = $1',
         [id],
       ),
       getMemberRole(id),
@@ -86,7 +86,7 @@ router.get('/@me', authenticate, async (req: AuthRequest, res) => {
 router.get('/members', authenticate, async (_req, res) => {
   try {
     const result = await pool.query(
-      'SELECT user_id, username, role, joined_at FROM members ORDER BY joined_at',
+      'SELECT user_id, username, avatar_url, role, joined_at FROM members ORDER BY joined_at',
     );
     res.json({ members: result.rows });
   } catch (err) {

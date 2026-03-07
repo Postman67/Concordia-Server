@@ -20,13 +20,13 @@ export function initializeSocket(io: Server): void {
 
     socket.data.user = user;
 
-    // Refresh the member's cached username on every fresh connection
+    // Refresh the member's cached username and avatar on every fresh connection
     try {
       await pool.query(
-        `INSERT INTO members (user_id, username)
-         VALUES ($1, $2)
-         ON CONFLICT (user_id) DO UPDATE SET username = EXCLUDED.username`,
-        [user.id, user.username],
+        `INSERT INTO members (user_id, username, avatar_url)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (user_id) DO UPDATE SET username = EXCLUDED.username, avatar_url = EXCLUDED.avatar_url`,
+        [user.id, user.username, user.avatar_url],
       );
     } catch (err) {
       console.error('[socket] member upsert failed:', err);
@@ -36,7 +36,7 @@ export function initializeSocket(io: Server): void {
   });
 
   io.on('connection', (socket) => {
-    const { username } = socket.data.user as { id: string; username: string };
+    const { username } = socket.data.user as { id: string; username: string; avatar_url: string | null };
     console.log(`[socket] connected: ${username} (${socket.id})`);
 
     registerChatHandlers(io, socket);
