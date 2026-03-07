@@ -3,14 +3,14 @@ import { pool } from './database';
 export interface ServerSettings {
   name: string;
   description: string;
-  /** Federation user ID of the server owner / primary admin. 0 = unset. */
-  admin_user_id: number;
+  /** Federation user UUID of the server owner / primary admin. Empty string = unset. */
+  admin_user_id: string;
 }
 
 const DEFAULTS: ServerSettings = {
   name: 'Concordia Server',
   description: '',
-  admin_user_id: 0,
+  admin_user_id: '',
 };
 
 const CACHE_TTL_MS = 30_000;
@@ -36,7 +36,7 @@ export async function getSettings(): Promise<ServerSettings> {
     const data: ServerSettings = {
       name:          map['name']          ?? DEFAULTS.name,
       description:   map['description']   ?? DEFAULTS.description,
-      admin_user_id: parseInt(map['admin_user_id'] ?? '0', 10),
+      admin_user_id: map['admin_user_id'] ?? DEFAULTS.admin_user_id,
     };
 
     _cache = { data, expiresAt: Date.now() + CACHE_TTL_MS };
@@ -68,10 +68,10 @@ export async function updateSettings(
  * ADMIN_USER_ID env var acts as a permanent override — useful for
  * initial bootstrap and emergency access recovery.
  */
-export async function isAdmin(userId: number): Promise<boolean> {
-  const envAdmin = parseInt(process.env.ADMIN_USER_ID || '0', 10);
-  if (envAdmin !== 0 && envAdmin === userId) return true;
+export async function isAdmin(userId: string): Promise<boolean> {
+  const envAdmin = process.env.ADMIN_USER_ID || '';
+  if (envAdmin !== '' && envAdmin === userId) return true;
 
   const { admin_user_id } = await getSettings();
-  return admin_user_id !== 0 && admin_user_id === userId;
+  return admin_user_id !== '' && admin_user_id === userId;
 }

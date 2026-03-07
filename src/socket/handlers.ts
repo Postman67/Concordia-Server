@@ -6,7 +6,7 @@ import { pool } from '../config/database';
 // ──────────────────────────────────────────────────────────────────────────────
 
 interface User {
-  id: number;
+  id: string;
   username: string;
 }
 

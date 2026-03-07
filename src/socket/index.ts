@@ -36,7 +36,7 @@ export function initializeSocket(io: Server): void {
   });
 
   io.on('connection', (socket) => {
-    const { username } = socket.data.user as { id: number; username: string };
+    const { username } = socket.data.user as { id: string; username: string };
     console.log(`[socket] connected: ${username} (${socket.id})`);
 
     registerChatHandlers(io, socket);

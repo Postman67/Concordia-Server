@@ -13,9 +13,9 @@ ALTER TABLE messages DROP CONSTRAINT IF EXISTS messages_user_id_fkey;
 --    the Federation at https://federation.concordiachat.com
 DROP TABLE IF EXISTS users CASCADE;
 
--- 3. Create the members table (Federation user IDs + cached display name)
+-- 3. Create the members table (Federation user UUIDs + cached display name)
 CREATE TABLE IF NOT EXISTS members (
-  user_id    INTEGER PRIMARY KEY,
+  user_id    UUID PRIMARY KEY,
   username   VARCHAR(100) NOT NULL,
   joined_at  TIMESTAMPTZ DEFAULT NOW()
 );

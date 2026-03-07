@@ -11,8 +11,8 @@
 -- username is a cached display name refreshed on each join/connect.
 -- role: 'member' (default) | 'moderator' | 'admin'
 CREATE TABLE IF NOT EXISTS members (
-  user_id    INTEGER PRIMARY KEY,    -- Federation-issued user ID
-  username   VARCHAR(100) NOT NULL,  -- cached display name (public, not sensitive)
+  user_id    UUID PRIMARY KEY,        -- Federation-issued user UUID
+  username   VARCHAR(100) NOT NULL,   -- cached display name (public, not sensitive)
   role       VARCHAR(20)  NOT NULL DEFAULT 'member'
                CHECK (role IN ('member', 'moderator', 'admin')),
   joined_at  TIMESTAMPTZ DEFAULT NOW()
@@ -32,14 +32,14 @@ CREATE TABLE IF NOT EXISTS channels (
   description TEXT,
   category_id INTEGER REFERENCES categories(id) ON DELETE SET NULL,
   position    INTEGER NOT NULL DEFAULT 0,
-  created_by  INTEGER,               -- Federation user ID (no FK — user may leave)
+  created_by  UUID,                  -- Federation user UUID (no FK — user may leave)
   created_at  TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS messages (
   id         SERIAL PRIMARY KEY,
   channel_id INTEGER NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
-  user_id    INTEGER NOT NULL,       -- Federation user ID (no FK — user may leave)
+  user_id    UUID NOT NULL,          -- Federation user UUID (no FK — user may leave)
   content    TEXT NOT NULL,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );

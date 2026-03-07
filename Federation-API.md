@@ -1,5 +1,7 @@
 # Concordia Federation — API Reference
 
+> Last updated: March 7, 2026 2:48 PM PST
+
 > The Federation is the sole authentication and settings authority for all Concordia clients.
 > Individual servers never receive personal user data — only the user's `id`.
 
@@ -51,7 +53,7 @@ Creates a new Federation account. Returns a JWT.
 {
   "message": "Account created successfully.",
   "token": "<jwt>",
-  "user": { "id": 1, "username": "petersmith", "email": "peter@example.com", "created_at": "..." }
+  "user": { "id": "a3f8c21d-7e44-4b1c-9f02-3d5e6a8b1c0f", "username": "petersmith", "email": "peter@example.com", "created_at": "..." }
 }
 ```
 
@@ -75,7 +77,7 @@ Authenticates an existing user. Returns a JWT.
 {
   "message": "Login successful.",
   "token": "<jwt>",
-  "user": { "id": 1, "username": "petersmith", "email": "peter@example.com" }
+  "user": { "id": "a3f8c21d-7e44-4b1c-9f02-3d5e6a8b1c0f", "username": "petersmith", "email": "peter@example.com" }
 }
 ```
 
@@ -95,7 +97,7 @@ Returns the authenticated user's profile joined with their current settings.
 ```json
 {
   "user": {
-    "id": 1,
+    "id": "a3f8c21d-7e44-4b1c-9f02-3d5e6a8b1c0f",
     "username": "petersmith",
     "email": "peter@example.com",
     "created_at": "...",
@@ -167,8 +169,8 @@ Returns the authenticated user's full server list, ordered by `position`.
 ```json
 {
   "servers": [
-    { "id": 1, "server_address": "192.168.1.10:8080", "nickname": "My Home Server", "position": 0, "added_at": "..." },
-    { "id": 2, "server_address": "play.concordia.gg:8080", "nickname": null, "position": 1, "added_at": "..." }
+    { "id": "a3f8c21d-7e44-4b1c-9f02-3d5e6a8b1c0f", "server_address": "192.168.1.10:8080", "server_name": "My Home Server", "position": 0, "added_at": "..." },
+    { "id": "b7e2d14f-3c55-4a2b-8e01-1f4d7b9c2e1a", "server_address": "play.concordia.gg:8080", "server_name": null, "position": 1, "added_at": "..." }
   ]
 }
 ```
@@ -184,16 +186,16 @@ Adds a server to the user's list.
 | Field | Type | Rules |
 |-------|------|-------|
 | `server_address` | string | Required. IP or domain:port. Max 255 chars. |
-| `nickname` | string | Optional. Max 100 chars. |
+| `server_name` | string | Optional. The server's display name, fetched from the server by the client and pushed here. Max 100 chars. |
 
 ```json
-{ "server_address": "192.168.1.10:8080", "nickname": "My Home Server" }
+{ "server_address": "192.168.1.10:8080", "server_name": "My Home Server" }
 ```
 
 **`201 Created`**
 ```json
 {
-  "server": { "id": 1, "server_address": "192.168.1.10:8080", "nickname": "My Home Server", "position": 0, "added_at": "..." }
+  "server": { "id": "a3f8c21d-7e44-4b1c-9f02-3d5e6a8b1c0f", "server_address": "192.168.1.10:8080", "server_name": "My Home Server", "position": 0, "added_at": "..." }
 }
 ```
 
@@ -209,7 +211,7 @@ Updates the `nickname` or `position` of an entry. Only sent fields are changed.
 
 | Field | Type | Rules |
 |-------|------|-------|
-| `nickname` | string | Max 100 chars. |
+| `server_name` | string | The server's display name pushed from the client. Max 100 chars. |
 | `position` | integer | Non-negative integer. |
 
 **`200 OK`** Returns updated server object.
@@ -232,7 +234,7 @@ Removes a server from the user's list.
 
 ```
 users
-├── id             SERIAL PRIMARY KEY
+├── id             UUID         PRIMARY KEY DEFAULT gen_random_uuid()
 ├── username       VARCHAR(50)  UNIQUE NOT NULL
 ├── email          VARCHAR(255) UNIQUE NOT NULL
 ├── password_hash  VARCHAR(255) NOT NULL          ← bcrypt hash, never plaintext
@@ -240,17 +242,17 @@ users
 └── updated_at     TIMESTAMPTZ  DEFAULT NOW()
 
 user_settings                                     ← one row per user, globally synced
-├── user_id        INTEGER PRIMARY KEY → users.id
+├── user_id        UUID PRIMARY KEY → users.id
 ├── display_name   VARCHAR(100)
 ├── avatar_url     VARCHAR(500)
 ├── theme          VARCHAR(20)  DEFAULT 'dark'
 └── updated_at     TIMESTAMPTZ  DEFAULT NOW()
 
 user_servers                                      ← server list, no user PII sent to servers
-├── id             SERIAL PRIMARY KEY
-├── user_id        INTEGER → users.id
+├── id             UUID         PRIMARY KEY DEFAULT gen_random_uuid()
+├── user_id        UUID → users.id
 ├── server_address VARCHAR(255) NOT NULL
-├── nickname       VARCHAR(100)
+├── server_name    VARCHAR(100)        ← pushed by client from the server
 ├── position       INTEGER DEFAULT 0
 └── added_at       TIMESTAMPTZ  DEFAULT NOW()
 ```

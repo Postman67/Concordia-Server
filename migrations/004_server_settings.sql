@@ -15,5 +15,5 @@ CREATE TABLE IF NOT EXISTS server_settings (
 INSERT INTO server_settings (key, value) VALUES
   ('name',          'Concordia Server'),
   ('description',   ''),
-  ('admin_user_id', '0')
+  ('admin_user_id', '')
 ON CONFLICT (key) DO NOTHING;

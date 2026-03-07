@@ -4,7 +4,9 @@
 > Clients log in via `https://federation.concordiachat.com` and pass the resulting JWT to this server.  
 > This server stores **no passwords, no emails** — only Federation user IDs.
 
-**Last updated on:** Saturday, March 7, 2026 at 14:31:50
+**Last updated on:** Saturday, March 7, 2026 at 15:09:19
+
+> **User IDs are UUIDs** (e.g. `"a3f8c21d-7e44-4b1c-9f02-3d5e6a8b1c0f"`). The Federation issues these on registration.
 
 Base URL (default): `http://localhost:3000`
 
@@ -76,9 +78,9 @@ Returns the list of users who have joined this server, including their role.
 ```json
 {
   "members": [
-    { "user_id": 1, "username": "petersmith", "role": "admin",     "joined_at": "2026-03-07T10:00:00.000Z" },
-    { "user_id": 2, "username": "alice",       "role": "moderator", "joined_at": "2026-03-07T10:05:00.000Z" },
-    { "user_id": 3, "username": "bob",         "role": "member",    "joined_at": "2026-03-07T10:10:00.000Z" }
+    { "user_id": "a3f8c21d-7e44-4b1c-9f02-3d5e6a8b1c0f", "username": "petersmith", "role": "admin",     "joined_at": "2026-03-07T10:00:00.000Z" },
+    { "user_id": "b1c2d3e4-1234-5678-9abc-def012345678", "username": "alice",       "role": "moderator", "joined_at": "2026-03-07T10:05:00.000Z" },
+    { "user_id": "c3d4e5f6-abcd-ef01-2345-678901234567", "username": "bob",         "role": "member",    "joined_at": "2026-03-07T10:10:00.000Z" }
   ]
 }
 ```
@@ -103,7 +105,7 @@ Assigns a role to a member. The configured admin (`admin_user_id`) cannot be dem
 
 **`200 OK`**
 ```json
-{ "member": { "user_id": 2, "username": "alice", "role": "moderator" } }
+{ "member": { "user_id": "b1c2d3e4-1234-5678-9abc-def012345678", "username": "alice", "role": "moderator" } }
 ```
 
 **`400`** Invalid role · **`401`** Unauthorized · **`403`** Not admin / cannot demote server owner · **`404`** Member not found · **`500`** Server error
@@ -119,7 +121,7 @@ Returns all admin-configurable server settings.
 {
   "name": "My Concordia Server",
   "description": "A place to chat.",
-  "admin_user_id": 42
+  "admin_user_id": "a3f8c21d-7e44-4b1c-9f02-3d5e6a8b1c0f"
 }
 ```
 
@@ -137,7 +139,7 @@ Updates one or more server settings. Only the fields you include are changed.
 |-------|------|-------|
 | `name` | string | 1–100 chars. |
 | `description` | string | 0–500 chars. |
-| `admin_user_id` | number | Non-negative integer. Federation user ID of the new admin. `0` = no admin. |
+| `admin_user_id` | string | Valid UUID (Federation user ID of the new admin), or `""` to unset. |
 
 ```json
 { "name": "Main Hub", "description": "A place to hang out." }
@@ -149,13 +151,13 @@ Updates one or more server settings. Only the fields you include are changed.
 {
   "name": "Main Hub",
   "description": "A place to hang out.",
-  "admin_user_id": 42
+  "admin_user_id": "a3f8c21d-7e44-4b1c-9f02-3d5e6a8b1c0f"
 }
 ```
 
 **`400`** Validation failed · **`401`** Unauthorized · **`403`** Not admin · **`500`** Server error
 
-> ⚠️ Changing `admin_user_id` transfers admin to another user. If you also remove the `ADMIN_USER_ID` env var, the previous admin will lose access immediately.
+> ⚠️ Changing `admin_user_id` transfers admin to another user. Pass `""` to unset. If you also remove the `ADMIN_USER_ID` env var when unsetting, you will be locked out of admin routes.
 
 ---
 
@@ -359,7 +361,7 @@ Fetches message history for a channel. Returns messages in **chronological order
     "id": 12,
     "content": "Hello world!",
     "created_at": "2026-03-07T11:00:00.000Z",
-    "user_id": 1,
+    "user_id": "a3f8c21d-7e44-4b1c-9f02-3d5e6a8b1c0f",
     "username": "petersmith"
   }
 ]
@@ -510,7 +512,7 @@ All server settings are stored in the database and managed from the client. The 
 | `DB_USER` | `concordia` | Database user |
 | `DB_PASSWORD` | — | **Required.** Database password |
 | `FEDERATION_URL` | `https://federation.concordiachat.com` | Override for local Federation instances |
-| `ADMIN_USER_ID` | `0` | Bootstrap admin on first deploy (seeds DB if `admin_user_id` is `0`). Also acts as a permanent emergency override when set. |
+| `ADMIN_USER_ID` | `` | Bootstrap admin on first deploy (seeds DB if `admin_user_id` is unset). Must be a valid Federation user UUID. Also acts as a permanent emergency override when set. |
 | `CLIENT_ORIGIN` | `*` | CORS allowed origin |
 
 Server name, description, and admin are stored in the `server_settings` database table and managed via `PATCH /api/server/settings`. The only **required** env var for a fresh deployment is `DB_PASSWORD`.

@@ -69,8 +69,8 @@ router.put(
   authenticate,
   requireRole('admin'),
   async (req: AuthRequest, res) => {
-    const targetId = parseInt(req.params.userId, 10);
-    if (isNaN(targetId)) {
+    const targetId = req.params.userId;
+    if (!targetId) {
       res.status(400).json({ error: 'Invalid user id' });
       return;
     }
@@ -127,7 +127,7 @@ router.patch(
       admin_user_id?: unknown;
     };
 
-    const updates: Record<string, string | number> = {};
+    const updates: Record<string, string> = {};
 
     if (name !== undefined) {
       if (typeof name !== 'string' || name.trim().length === 0 || name.length > 100) {
@@ -146,12 +146,13 @@ router.patch(
     }
 
     if (admin_user_id !== undefined) {
-      const id = Number(admin_user_id);
-      if (!Number.isInteger(id) || id < 0) {
-        res.status(400).json({ error: 'admin_user_id must be a non-negative integer' });
+      // Accept a valid UUID (to set admin) or empty string (to unset)
+      const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (admin_user_id !== '' && (typeof admin_user_id !== 'string' || !UUID_RE.test(admin_user_id))) {
+        res.status(400).json({ error: 'admin_user_id must be a valid UUID or empty string to unset' });
         return;
       }
-      updates['admin_user_id'] = id;
+      updates['admin_user_id'] = admin_user_id as string;
     }
 
     if (Object.keys(updates).length === 0) {

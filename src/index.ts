@@ -70,10 +70,10 @@ async function start(): Promise<void> {
 
   // Bootstrap: if ADMIN_USER_ID env var is set and no admin is configured in
   // the DB yet, seed the DB once so the admin can then manage settings from the client.
-  const envAdminId = parseInt(process.env.ADMIN_USER_ID || '0', 10);
-  if (envAdminId !== 0) {
+  const envAdminId = process.env.ADMIN_USER_ID || '';
+  if (envAdminId !== '') {
     const current = await getSettings();
-    if (current.admin_user_id === 0) {
+    if (current.admin_user_id === '') {
       await updateSettings({ admin_user_id: envAdminId });
       console.log(`[server] admin_user_id bootstrapped from ADMIN_USER_ID env var: ${envAdminId}`);
     }
@@ -83,7 +83,7 @@ async function start(): Promise<void> {
   httpServer.listen(PORT, HOST, () => {
     console.log(`[server] "${config.name}" listening on ${HOST}:${PORT}`);
     console.log(`[server] federation: ${process.env.FEDERATION_URL || 'https://federation.concordiachat.com'}`);
-    if (config.admin_user_id === 0 && envAdminId === 0) {
+    if (!config.admin_user_id && !envAdminId) {
       console.warn('[server] WARNING: No admin configured. Set ADMIN_USER_ID env var on first deploy, or PATCH /api/server/settings once you have access.');
     }
   });
