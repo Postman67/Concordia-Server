@@ -12,7 +12,7 @@ const ROLE_RANK: Record<Role, number> = { member: 0, moderator: 1, admin: 2 };
  * The server config owner is always 'admin' regardless of the DB value.
  */
 export async function getMemberRole(userId: number): Promise<Role> {
-  if (isAdmin(userId)) return 'admin';
+  if (await isAdmin(userId)) return 'admin';
   try {
     const result = await pool.query(
       'SELECT role FROM members WHERE user_id = $1',

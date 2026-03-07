@@ -32,7 +32,10 @@ services:
       DB_PASSWORD: ${DB_PASSWORD}
       # URL of the Federation (override for local/self-hosted Federation instances)
       FEDERATION_URL: ${FEDERATION_URL:-https://federation.concordiachat.com}
-      # Federation user ID of the server owner — can also be set in server.config.json
+      # Bootstrap admin: set this to your Federation user ID on the FIRST deploy so
+      # you can log in and configure the server from the client. Once admin_user_id
+      # is saved in the database you can remove this variable (it also acts as an
+      # emergency recovery override at any time).
       ADMIN_USER_ID: ${ADMIN_USER_ID:-0}
       CLIENT_ORIGIN: ${CLIENT_ORIGIN:-*}
     depends_on:

@@ -8,7 +8,7 @@ import rateLimit from 'express-rate-limit';
 
 import { pool } from './config/database';
 import { runMigrations } from './db/migrate';
-import { getServerConfig } from './config/server';
+import { getSettings, updateSettings } from './config/server';
 import { initializeSocket } from './socket';
 import serverRoutes from './routes/server';
 import categoryRoutes from './routes/categories';
@@ -68,12 +68,23 @@ async function start(): Promise<void> {
     process.exit(1);
   }
 
-  const config = getServerConfig();
+  // Bootstrap: if ADMIN_USER_ID env var is set and no admin is configured in
+  // the DB yet, seed the DB once so the admin can then manage settings from the client.
+  const envAdminId = parseInt(process.env.ADMIN_USER_ID || '0', 10);
+  if (envAdminId !== 0) {
+    const current = await getSettings();
+    if (current.admin_user_id === 0) {
+      await updateSettings({ admin_user_id: envAdminId });
+      console.log(`[server] admin_user_id bootstrapped from ADMIN_USER_ID env var: ${envAdminId}`);
+    }
+  }
+
+  const config = await getSettings();
   httpServer.listen(PORT, HOST, () => {
     console.log(`[server] "${config.name}" listening on ${HOST}:${PORT}`);
     console.log(`[server] federation: ${process.env.FEDERATION_URL || 'https://federation.concordiachat.com'}`);
-    if (config.admin_user_id === 0) {
-      console.warn('[server] WARNING: admin_user_id is not set in server.config.json');
+    if (config.admin_user_id === 0 && envAdminId === 0) {
+      console.warn('[server] WARNING: No admin configured. Set ADMIN_USER_ID env var on first deploy, or PATCH /api/server/settings once you have access.');
     }
   });
 }

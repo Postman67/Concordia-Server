@@ -4,7 +4,7 @@
 > Clients log in via `https://federation.concordiachat.com` and pass the resulting JWT to this server.  
 > This server stores **no passwords, no emails** — only Federation user IDs.
 
-**Last updated on:** Saturday, March 7, 2026 at 05:21:20
+**Last updated on:** Saturday, March 7, 2026 at 14:31:50
 
 Base URL (default): `http://localhost:3000`
 
@@ -89,7 +89,7 @@ Returns the list of users who have joined this server, including their role.
 
 ### `PUT /api/server/members/:userId/role` 🔒 *(admin only)*
 
-Assigns a role to a member. The server config owner (`admin_user_id`) cannot be demoted.
+Assigns a role to a member. The configured admin (`admin_user_id`) cannot be demoted.
 
 **Request body**
 
@@ -110,6 +110,55 @@ Assigns a role to a member. The server config owner (`admin_user_id`) cannot be 
 
 ---
 
+### `GET /api/server/settings` 🔒 *(admin only)*
+
+Returns all admin-configurable server settings.
+
+**`200 OK`**
+```json
+{
+  "name": "My Concordia Server",
+  "description": "A place to chat.",
+  "admin_user_id": 42
+}
+```
+
+**`401`** Unauthorized · **`403`** Not admin · **`500`** Server error
+
+---
+
+### `PATCH /api/server/settings` 🔒 *(admin only)*
+
+Updates one or more server settings. Only the fields you include are changed.
+
+**Request body** — all fields optional
+
+| Field | Type | Rules |
+|-------|------|-------|
+| `name` | string | 1–100 chars. |
+| `description` | string | 0–500 chars. |
+| `admin_user_id` | number | Non-negative integer. Federation user ID of the new admin. `0` = no admin. |
+
+```json
+{ "name": "Main Hub", "description": "A place to hang out." }
+```
+
+**`200 OK`** Returns the full updated settings object.
+
+```json
+{
+  "name": "Main Hub",
+  "description": "A place to hang out.",
+  "admin_user_id": 42
+}
+```
+
+**`400`** Validation failed · **`401`** Unauthorized · **`403`** Not admin · **`500`** Server error
+
+> ⚠️ Changing `admin_user_id` transfers admin to another user. If you also remove the `ADMIN_USER_ID` env var, the previous admin will lose access immediately.
+
+---
+
 ## Roles
 
 Roles control what actions a user can perform on the server.
@@ -118,9 +167,9 @@ Roles control what actions a user can perform on the server.
 |------|-------------|
 | `member` | Read channels, read/send messages, join server |
 | `moderator` | All of the above + create channels, rename/reposition channels and categories |
-| `admin` | All of the above + create/delete categories, delete channels, assign roles to members |
+| `admin` | All of the above + create/delete categories, delete channels, assign roles, change server settings |
 
-> The user whose `user_id` matches `admin_user_id` in `server.config.json` is **always** treated as admin, regardless of what is stored in the database.
+> The user whose `user_id` matches `admin_user_id` in the `server_settings` table is **always** treated as admin, regardless of what is stored in the `members` table. If the `ADMIN_USER_ID` environment variable is set it overrides the database value (useful for emergency recovery).
 
 ---
 
@@ -438,20 +487,15 @@ socket.on('error', ({ message }) => console.error('Server error:', message));
 
 ---
 
-## Admin setup
+## First-time setup
 
-Set your Federation user ID in `server.config.json` at the project root:
+All server settings are stored in the database and managed from the client. The workflow for a fresh deployment is:
 
-```json
-{
-  "name": "My Concordia Server",
-  "description": "A place to chat.",
-  "admin_user_id": 1
-}
-```
-
-Alternatively, set the `ADMIN_USER_ID` environment variable.  
-If `admin_user_id` is `0` (default), the server will warn on startup and all privileged actions will be locked.
+1. **Find your Federation user ID** — log in to the Federation and call `GET /api/user/me`. Note the `id` field.
+2. **Set `ADMIN_USER_ID` in your stack env** — add `ADMIN_USER_ID=<your-id>` to your `.env` or Portainer stack variables.
+3. **Deploy** — the server seeds `admin_user_id` from the env var on first start (only if the database value is still `0`).
+4. **Configure from the client** — open your client app, log in, and use `PATCH /api/server/settings` to set the server name, description, or transfer admin to another user.
+5. **Optionally remove the env var** — once the database has your `admin_user_id`, the env var is no longer required. You can leave it set as a permanent emergency override.
 
 ---
 
@@ -466,24 +510,20 @@ If `admin_user_id` is `0` (default), the server will warn on startup and all pri
 | `DB_USER` | `concordia` | Database user |
 | `DB_PASSWORD` | — | **Required.** Database password |
 | `FEDERATION_URL` | `https://federation.concordiachat.com` | Override for local Federation instances |
-| `ADMIN_USER_ID` | `0` | Fallback if `server.config.json` is absent |
+| `ADMIN_USER_ID` | `0` | Bootstrap admin on first deploy (seeds DB if `admin_user_id` is `0`). Also acts as a permanent emergency override when set. |
 | `CLIENT_ORIGIN` | `*` | CORS allowed origin |
+
+Server name, description, and admin are stored in the `server_settings` database table and managed via `PATCH /api/server/settings`. The only **required** env var for a fresh deployment is `DB_PASSWORD`.
 
 ---
 
 ## Database
 
-The Postgres schema is initialised automatically via `migrations/001_initial.sql` when the DB volume is first created.
+The schema and all migrations are applied automatically at startup by the built-in migration runner. No manual SQL execution is needed.
 
-**Upgrading an existing DB:**
-
-| From schema | Migration to run |
-|-------------|------------------|
-| Original (`users` table) | `002_federation_auth.sql` |
-| Post-federation (no categories/roles) | `003_categories_roles.sql` |
-
-**Fresh start** (drops all data):
-```bash
-docker-compose down -v
-docker-compose up -d
-```
+| Migration | Description |
+|-----------|-------------|
+| `001_initial.sql` | Core schema: members, categories, channels, messages |
+| `002_federation_auth.sql` | Upgrade path from original `users`-table schema |
+| `003_categories_roles.sql` | Adds `role` to members, `position`/`category_id` to channels |
+| `004_server_settings.sql` | `server_settings` table for client-managed configuration |

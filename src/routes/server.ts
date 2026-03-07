@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { pool } from '../config/database';
 import { authenticate, AuthRequest } from '../middleware/auth';
-import { getServerConfig, isAdmin } from '../config/server';
+import { getSettings, updateSettings, isAdmin } from '../config/server';
 import { requireRole } from '../middleware/roles';
 
 const router = Router();
@@ -9,8 +9,10 @@ const router = Router();
 // GET /api/server/info — public, returns server metadata and member count
 router.get('/info', async (_req, res) => {
   try {
-    const config = getServerConfig();
-    const countResult = await pool.query('SELECT COUNT(*) FROM members');
+    const [config, countResult] = await Promise.all([
+      getSettings(),
+      pool.query('SELECT COUNT(*) FROM members'),
+    ]);
     res.json({
       name: config.name,
       description: config.description,
@@ -37,7 +39,7 @@ router.post('/join', authenticate, async (req: AuthRequest, res) => {
       [id, username],
     );
 
-    const config = getServerConfig();
+    const config = await getSettings();
     res.status(200).json({
       message: 'Joined server successfully.',
       server: { name: config.name, description: config.description },
@@ -80,7 +82,7 @@ router.put(
     }
 
     // Prevent demoting the server config owner
-    if (isAdmin(targetId) && role !== 'admin') {
+    if (await isAdmin(targetId) && role !== 'admin') {
       res.status(403).json({ error: 'Cannot change the role of the server owner' });
       return;
     }
@@ -97,6 +99,72 @@ router.put(
       res.json({ member: result.rows[0] });
     } catch (err) {
       console.error('[server/members/role]', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  },
+);
+
+// GET /api/server/settings — returns all admin-configurable settings (admin only)
+router.get('/settings', authenticate, requireRole('admin'), async (_req, res) => {
+  try {
+    const settings = await getSettings();
+    res.json(settings);
+  } catch (err) {
+    console.error('[server/settings GET]', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// PATCH /api/server/settings — update one or more settings (admin only)
+router.patch(
+  '/settings',
+  authenticate,
+  requireRole('admin'),
+  async (req: AuthRequest, res) => {
+    const { name, description, admin_user_id } = req.body as {
+      name?: unknown;
+      description?: unknown;
+      admin_user_id?: unknown;
+    };
+
+    const updates: Record<string, string | number> = {};
+
+    if (name !== undefined) {
+      if (typeof name !== 'string' || name.trim().length === 0 || name.length > 100) {
+        res.status(400).json({ error: 'name must be a non-empty string up to 100 characters' });
+        return;
+      }
+      updates['name'] = name.trim();
+    }
+
+    if (description !== undefined) {
+      if (typeof description !== 'string' || description.length > 500) {
+        res.status(400).json({ error: 'description must be a string up to 500 characters' });
+        return;
+      }
+      updates['description'] = description;
+    }
+
+    if (admin_user_id !== undefined) {
+      const id = Number(admin_user_id);
+      if (!Number.isInteger(id) || id < 0) {
+        res.status(400).json({ error: 'admin_user_id must be a non-negative integer' });
+        return;
+      }
+      updates['admin_user_id'] = id;
+    }
+
+    if (Object.keys(updates).length === 0) {
+      res.status(400).json({ error: 'No valid fields provided' });
+      return;
+    }
+
+    try {
+      await updateSettings(updates);
+      const updated = await getSettings();
+      res.json(updated);
+    } catch (err) {
+      console.error('[server/settings PATCH]', err);
       res.status(500).json({ error: 'Internal server error' });
     }
   },
