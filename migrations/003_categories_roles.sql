@@ -23,10 +23,14 @@ ALTER TABLE channels
 ALTER TABLE channels
   ADD COLUMN IF NOT EXISTS position INTEGER NOT NULL DEFAULT 0;
 
--- 4. Seed a default "Text Channels" category and assign existing channels to it
+-- 4. Seed default category and assign uncategorized channels (idempotent)
 DO $$
 DECLARE cat_id INTEGER;
 BEGIN
-  INSERT INTO categories (name, position) VALUES ('Text Channels', 0) RETURNING id INTO cat_id;
+  INSERT INTO categories (name, position)
+  SELECT 'Text Channels', 0
+  WHERE NOT EXISTS (SELECT 1 FROM categories WHERE name = 'Text Channels');
+
+  SELECT id INTO cat_id FROM categories WHERE name = 'Text Channels' LIMIT 1;
   UPDATE channels SET category_id = cat_id WHERE category_id IS NULL;
 END $$;

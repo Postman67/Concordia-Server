@@ -48,11 +48,16 @@ CREATE TABLE IF NOT EXISTS messages (
 CREATE INDEX IF NOT EXISTS idx_messages_channel_created
   ON messages(channel_id, created_at DESC);
 
--- Seed: default category + general channel
+-- Seed: default category + general channel (idempotent)
 DO $$
 DECLARE cat_id INTEGER;
 BEGIN
-  INSERT INTO categories (name, position) VALUES ('Text Channels', 0) RETURNING id INTO cat_id;
+  INSERT INTO categories (name, position)
+  SELECT 'Text Channels', 0
+  WHERE NOT EXISTS (SELECT 1 FROM categories WHERE name = 'Text Channels');
+
+  SELECT id INTO cat_id FROM categories WHERE name = 'Text Channels' LIMIT 1;
+
   INSERT INTO channels (name, description, category_id, position)
   VALUES ('general', 'General discussion', cat_id, 0)
   ON CONFLICT (name) DO NOTHING;

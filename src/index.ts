@@ -7,6 +7,7 @@ import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 
 import { pool } from './config/database';
+import { runMigrations } from './db/migrate';
 import { getServerConfig } from './config/server';
 import { initializeSocket } from './socket';
 import serverRoutes from './routes/server';
@@ -57,6 +58,13 @@ async function start(): Promise<void> {
     console.log('[db] connected');
   } catch (err) {
     console.error('[db] failed to connect:', err);
+    process.exit(1);
+  }
+
+  try {
+    await runMigrations(pool);
+  } catch (err) {
+    console.error(err);
     process.exit(1);
   }
 
