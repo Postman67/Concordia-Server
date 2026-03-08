@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { pool } from '../config/database';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { requireRole } from '../middleware/roles';
+import { broadcast } from '../socket/broadcast';
 
 const router = Router();
 
@@ -68,7 +69,15 @@ router.post('/', authenticate, requireRole('admin'), async (req: AuthRequest, re
        RETURNING id, name, description, category_id, position, created_at`,
       [name, description ?? null, catId, pos, req.user!.id],
     );
-    res.status(201).json(result.rows[0]);
+    const full = await pool.query(
+      `SELECT c.id, c.name, c.description, c.category_id, c.position, c.created_at,
+              cat.name AS category_name, cat.position AS category_position
+       FROM channels c LEFT JOIN categories cat ON cat.id = c.category_id
+       WHERE c.id = $1`,
+      [result.rows[0].id],
+    );
+    broadcast('channel:created', full.rows[0]);
+    res.status(201).json(full.rows[0]);
   } catch (err) {
     console.error('[channels/create]', err);
     res.status(500).json({ error: 'Internal server error' });
@@ -118,6 +127,7 @@ router.put('/reorder', authenticate, requireRole('admin'), async (req: AuthReque
        LEFT JOIN categories cat ON cat.id = c.category_id
        ORDER BY COALESCE(cat.position, 999999), c.position, c.name`,
     );
+    broadcast('channels:reordered', updated.rows);
     res.json(updated.rows);
   } catch (err) {
     await client.query('ROLLBACK');
@@ -182,7 +192,15 @@ router.patch('/:id', authenticate, requireRole('moderator'), async (req: AuthReq
       res.status(404).json({ error: 'Channel not found' });
       return;
     }
-    res.json(result.rows[0]);
+    const full = await pool.query(
+      `SELECT c.id, c.name, c.description, c.category_id, c.position, c.created_at,
+              cat.name AS category_name, cat.position AS category_position
+       FROM channels c LEFT JOIN categories cat ON cat.id = c.category_id
+       WHERE c.id = $1`,
+      [result.rows[0].id],
+    );
+    broadcast('channel:updated', full.rows[0]);
+    res.json(full.rows[0]);
   } catch (err: unknown) {
     if ((err as { code?: string }).code === '23505') {
       res.status(409).json({ error: 'Channel name already taken' });
@@ -203,6 +221,7 @@ router.delete('/:id', authenticate, requireRole('admin'), async (req: AuthReques
       res.status(404).json({ error: 'Channel not found' });
       return;
     }
+    broadcast('channel:deleted', { id });
     res.status(204).send();
   } catch (err) {
     console.error('[channels/delete]', err);

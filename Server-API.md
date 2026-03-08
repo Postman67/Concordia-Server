@@ -4,7 +4,7 @@
 > Clients log in via `https://federation.concordiachat.com` and pass the resulting JWT to this server.  
 > This server stores **no passwords, no emails** — only Federation user IDs.
 
-**Last updated on:** Saturday, March 7, 2026 at 15:52:10
+**Last updated on:** Saturday, March 7, 2026 at 16:10:00
 
 > **User IDs are UUIDs** (e.g. `"a3f8c21d-7e44-4b1c-9f02-3d5e6a8b1c0f"`). The Federation issues these on registration.
 
@@ -534,6 +534,56 @@ socket.emit('typing:stop', 1);
 socket.on('typing:update', ({ user, isTyping }) => {
   console.log(`${user.username} is ${isTyping ? 'typing...' : 'done'}`);
 });
+```
+
+---
+
+### Server-push update events
+
+These events are broadcast to **all connected clients** whenever an admin or moderator changes server configuration. Clients should update their local state immediately on receipt — no reconnect or re-fetch needed.
+
+#### Server info
+
+| Event | Payload | Trigger |
+|-------|---------|----|
+| `server:updated` | `{ name, description }` | `PATCH /api/server/settings` (name or description changed) |
+
+#### Categories
+
+| Event | Payload | Trigger |
+|-------|---------|----|
+| `category:created` | `{ id, name, position, created_at }` | `POST /api/categories` |
+| `category:updated` | `{ id, name, position, created_at }` | `PATCH /api/categories/:id` |
+| `category:deleted` | `{ id }` | `DELETE /api/categories/:id` |
+| `categories:reordered` | full categories array | `PUT /api/categories/reorder` |
+
+#### Channels
+
+| Event | Payload | Trigger |
+|-------|---------|----|
+| `channel:created` | `{ id, name, description, category_id, position, created_at, category_name, category_position }` | `POST /api/channels` |
+| `channel:updated` | same as above | `PATCH /api/channels/:id` |
+| `channel:deleted` | `{ id }` | `DELETE /api/channels/:id` |
+| `channels:reordered` | full channels array | `PUT /api/channels/reorder` |
+
+#### Members
+
+| Event | Payload | Trigger |
+|-------|---------|----|
+| `member:role_updated` | `{ user_id, username, role }` | `PUT /api/server/members/:userId/role` |
+
+```ts
+// Subscribe once on connect
+socket.on('server:updated',       (info)     => store.setServerInfo(info));
+socket.on('category:created',     (cat)      => store.addCategory(cat));
+socket.on('category:updated',     (cat)      => store.updateCategory(cat));
+socket.on('category:deleted',     ({ id })   => store.removeCategory(id));
+socket.on('categories:reordered', (cats)     => store.setCategories(cats));
+socket.on('channel:created',      (ch)       => store.addChannel(ch));
+socket.on('channel:updated',      (ch)       => store.updateChannel(ch));
+socket.on('channel:deleted',      ({ id })   => store.removeChannel(id));
+socket.on('channels:reordered',   (channels) => store.setChannels(channels));
+socket.on('member:role_updated',  (member)   => store.updateMemberRole(member));
 ```
 
 ---

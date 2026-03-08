@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { pool } from '../config/database';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { requireRole } from '../middleware/roles';
+import { broadcast } from '../socket/broadcast';
 
 const router = Router();
 
@@ -41,6 +42,7 @@ router.post('/', authenticate, requireRole('admin'), async (req: AuthRequest, re
       'INSERT INTO categories (name, position) VALUES ($1, $2) RETURNING id, name, position, created_at',
       [name, pos],
     );
+    broadcast('category:created', result.rows[0]);
     res.status(201).json(result.rows[0]);
   } catch (err) {
     console.error('[categories/create]', err);
@@ -85,6 +87,7 @@ router.put('/reorder', authenticate, requireRole('admin'), async (req: AuthReque
     const updated = await pool.query(
       'SELECT id, name, position, created_at FROM categories ORDER BY position, name',
     );
+    broadcast('categories:reordered', updated.rows);
     res.json(updated.rows);
   } catch (err) {
     await client.query('ROLLBACK');
@@ -137,6 +140,7 @@ router.patch('/:id', authenticate, requireRole('moderator'), async (req: AuthReq
       res.status(404).json({ error: 'Category not found' });
       return;
     }
+    broadcast('category:updated', result.rows[0]);
     res.json(result.rows[0]);
   } catch (err) {
     console.error('[categories/update]', err);
@@ -162,6 +166,7 @@ router.delete('/:id', authenticate, requireRole('admin'), async (req: AuthReques
       res.status(404).json({ error: 'Category not found' });
       return;
     }
+    broadcast('category:deleted', { id });
     res.status(204).send();
   } catch (err) {
     console.error('[categories/delete]', err);

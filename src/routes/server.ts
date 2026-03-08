@@ -3,6 +3,7 @@ import { pool } from '../config/database';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { getSettings, updateSettings, isAdmin } from '../config/server';
 import { requireRole, getMemberRole } from '../middleware/roles';
+import { broadcast } from '../socket/broadcast';
 
 const router = Router();
 
@@ -128,6 +129,7 @@ router.put(
         res.status(404).json({ error: 'Member not found' });
         return;
       }
+      broadcast('member:role_updated', result.rows[0]);
       res.json({ member: result.rows[0] });
     } catch (err) {
       console.error('[server/members/role]', err);
@@ -195,6 +197,10 @@ router.patch(
     try {
       await updateSettings(updates);
       const updated = await getSettings();
+      // Only broadcast publicly-visible fields — admin_user_id stays server-side
+      if (updates['name'] !== undefined || updates['description'] !== undefined) {
+        broadcast('server:updated', { name: updated.name, description: updated.description });
+      }
       res.json(updated);
     } catch (err) {
       console.error('[server/settings PATCH]', err);

@@ -10,6 +10,7 @@ import { pool } from './config/database';
 import { runMigrations } from './db/migrate';
 import { getSettings, updateSettings } from './config/server';
 import { initializeSocket } from './socket';
+import { setIO } from './socket/broadcast';
 import serverRoutes from './routes/server';
 import categoryRoutes from './routes/categories';
 import channelRoutes from './routes/channels';
@@ -46,6 +47,7 @@ app.get('/health', (_req, res) => {
 });
 
 // ── Socket.IO ─────────────────────────────────────────────────────────────────
+setIO(io);
 initializeSocket(io);
 
 // ── Start ─────────────────────────────────────────────────────────────────────
