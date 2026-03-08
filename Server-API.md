@@ -637,6 +637,7 @@ Fetches message history for a channel. Returns messages in **chronological order
   {
     "id": 12,
     "content": "Hello world!",
+    "is_edited": false,
     "created_at": "2026-03-07T11:00:00.000Z",
     "user_id": "a3f8c21d-7e44-4b1c-9f02-3d5e6a8b1c0f",
     "username": "petersmith",
@@ -644,6 +645,8 @@ Fetches message history for a channel. Returns messages in **chronological order
   }
 ]
 ```
+
+> `is_edited: true` means the content was changed after the message was first sent. No edit history is stored.
 
 **Pagination — load older messages**
 
@@ -657,9 +660,47 @@ GET /api/messages/1?limit=50&before=2026-03-07T11%3A00%3A00.000Z
 
 ---
 
-## Real-time — Socket.IO
+### `PATCH /api/messages/:id` 🔒
 
-The server runs Socket.IO on the same port as the HTTP server.
+Edit a message's content. **Only the original author** can edit their message — no permission can override this.
+
+**Request body**
+
+| Field | Type | Rules |
+|-------|------|-------|
+| `content` | string | 1–2000 characters. |
+
+**`200 OK`** Returns the updated message fields.
+```json
+{ "id": 12, "content": "Hello world (edited)", "is_edited": true, "created_at": "2026-03-07T11:00:00.000Z" }
+```
+
+| Status | Meaning |
+|--------|---------|
+| `400` | Invalid ID or content validation failed |
+| `403` | Caller is not the message author |
+| `404` | Message not found |
+
+Also broadcasts `message:edited` to all clients in the channel.
+
+---
+
+### `DELETE /api/messages/:id` 🔒
+
+Delete a message.
+
+**Who can delete:**
+- The **author** — always.
+- Any user with **`MANAGE_MESSAGES`** permission — only if their highest role position is **strictly higher** than the message author's highest role position. (You cannot delete messages from peers or users above you.)
+
+**`204 No Content`** on success.
+
+| Status | Meaning |
+|--------|---------|
+| `403` | Missing permission, or target author outranks / equals the requester |
+| `404` | Message not found |
+
+Also broadcasts `message:deleted` to all clients in the channel. on the same port as the HTTP server.
 
 ### Connection
 
@@ -782,6 +823,13 @@ These events are broadcast to **all connected clients** whenever an admin or mod
 | `channel:updated` | same as above | `PATCH /api/channels/:id` |
 | `channel:deleted` | `{ id }` | `DELETE /api/channels/:id` |
 | `channels:reordered` | full channels array | `PUT /api/channels/reorder` |
+
+#### Messages
+
+| Event | Payload | Trigger |
+|-------|---------|--------|
+| `message:edited` | `{ id, channelId, content, is_edited: true }` | `PATCH /api/messages/:id` or `message:edit` socket event |
+| `message:deleted` | `{ id, channelId }` | `DELETE /api/messages/:id` or `message:delete` socket event |
 
 #### Members
 

@@ -1,6 +1,6 @@
 import { Server, Socket } from 'socket.io';
 import { pool } from '../config/database';
-import { resolvePermissions, hasPermission, Permissions } from '../config/permissions';
+import { resolvePermissions, hasPermission, Permissions, getTopRolePosition } from '../config/permissions';
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Types
@@ -15,6 +15,15 @@ interface User {
 interface MessageSendPayload {
   channelId: number;
   content: string;
+}
+
+interface MessageEditPayload {
+  messageId: number;
+  content: string;
+}
+
+interface MessageDeletePayload {
+  messageId: number;
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -170,5 +179,113 @@ export function registerChatHandlers(io: Server, socket: Socket): void {
       user: { id: user.id, username: user.username },
       isTyping: false,
     });
+  });
+
+  // ── message:edit ────────────────────────────────────────────────────────────
+  // Client sends: { messageId: number, content: string }
+  // Only the original author may edit. No exceptions.
+  // Server broadcasts to channel: message:edited { id, channelId, content, is_edited: true }
+  socket.on('message:edit', async (payload: unknown) => {
+    const { messageId, content } = (payload ?? {}) as Partial<MessageEditPayload>;
+
+    if (typeof messageId !== 'number' || typeof content !== 'string') {
+      socket.emit('error', { message: 'Invalid payload' });
+      return;
+    }
+
+    const trimmed = content.trim();
+    if (trimmed.length === 0 || trimmed.length > 2000) {
+      socket.emit('error', { message: 'Message must be 1\u20132000 characters' });
+      return;
+    }
+
+    try {
+      const msgResult = await pool.query<{ user_id: string; channel_id: number }>(
+        'SELECT user_id, channel_id FROM messages WHERE id = $1',
+        [messageId],
+      );
+      if (msgResult.rows.length === 0) {
+        socket.emit('error', { message: 'Message not found' });
+        return;
+      }
+
+      const msg = msgResult.rows[0];
+      if (msg.user_id !== user.id) {
+        socket.emit('error', { message: 'Only the author can edit their message' });
+        return;
+      }
+
+      await pool.query(
+        'UPDATE messages SET content = $1, is_edited = TRUE WHERE id = $2',
+        [trimmed, messageId],
+      );
+
+      io.to(roomName(msg.channel_id)).emit('message:edited', {
+        id: messageId,
+        channelId: msg.channel_id,
+        content: trimmed,
+        is_edited: true,
+      });
+    } catch (err) {
+      console.error('[socket] message:edit', err);
+      socket.emit('error', { message: 'Failed to edit message' });
+    }
+  });
+
+  // ── message:delete ──────────────────────────────────────────────────────────
+  // Client sends: { messageId: number }
+  // Authors can always delete their own messages.
+  // Users with MANAGE_MESSAGES can delete others', but only if the target
+  // author's highest role position is strictly below the requester's.
+  // Server broadcasts to channel: message:deleted { id, channelId }
+  socket.on('message:delete', async (payload: unknown) => {
+    const { messageId } = (payload ?? {}) as Partial<MessageDeletePayload>;
+
+    if (typeof messageId !== 'number') {
+      socket.emit('error', { message: 'Invalid payload' });
+      return;
+    }
+
+    try {
+      const msgResult = await pool.query<{ user_id: string; channel_id: number }>(
+        'SELECT user_id, channel_id FROM messages WHERE id = $1',
+        [messageId],
+      );
+      if (msgResult.rows.length === 0) {
+        socket.emit('error', { message: 'Message not found' });
+        return;
+      }
+
+      const msg = msgResult.rows[0];
+
+      if (msg.user_id !== user.id) {
+        // Not the author \u2014 check MANAGE_MESSAGES and role hierarchy
+        const perms = await resolvePermissions(user.id, msg.channel_id);
+        if (!hasPermission(perms, Permissions.MANAGE_MESSAGES)) {
+          socket.emit('error', { message: 'You do not have permission to delete this message' });
+          return;
+        }
+
+        const [requesterTop, authorTop] = await Promise.all([
+          getTopRolePosition(user.id),
+          getTopRolePosition(msg.user_id),
+        ]);
+
+        if (requesterTop <= authorTop) {
+          socket.emit('error', { message: 'You cannot delete messages from members with an equal or higher role' });
+          return;
+        }
+      }
+
+      await pool.query('DELETE FROM messages WHERE id = $1', [messageId]);
+
+      io.to(roomName(msg.channel_id)).emit('message:deleted', {
+        id: messageId,
+        channelId: msg.channel_id,
+      });
+    } catch (err) {
+      console.error('[socket] message:delete', err);
+      socket.emit('error', { message: 'Failed to delete message' });
+    }
   });
 }

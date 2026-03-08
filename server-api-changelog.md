@@ -5,6 +5,34 @@ Most recent changes appear at the top.
 
 ---
 
+## Saturday, March 7, 2026 — 19:00
+
+### Message Edit & Delete
+
+**New field on all message objects:**
+- `is_edited: boolean` — `true` if the message content was ever changed after sending. No edit count or timestamp is stored.
+
+**New REST endpoints:**
+
+| Endpoint | Who can call it | Notes |
+|----------|----------------|-------|
+| `PATCH /api/messages/:id` | Author only | Updates `content`, sets `is_edited = true`. No permission can override the author-only rule. |
+| `DELETE /api/messages/:id` | Author, or `MANAGE_MESSAGES` + higher role | Callers with `MANAGE_MESSAGES` can only delete messages from users whose *highest role position* is strictly below their own. |
+
+**New socket events (Client → Server):**
+- `message:edit { messageId, content }` — same author-only restriction as the REST endpoint.
+- `message:delete { messageId }` — same hierarchy rules as the REST endpoint.
+
+**New broadcast events (Server → channel room):**
+- `message:edited { id, channelId, content, is_edited: true }`
+- `message:deleted { id, channelId }`
+
+**New permission helper:** `getTopRolePosition(userId)` in `permissions.ts` — returns the user's highest non-`@everyone` role `position`, or `Infinity` for the server owner. Used for the hierarchy check on message deletion.
+
+**Migration:** `009_message_edits.sql` — `ALTER TABLE messages ADD COLUMN is_edited BOOLEAN NOT NULL DEFAULT FALSE`.
+
+---
+
 ## Saturday, March 7, 2026 — 18:00
 
 ### Server Owner Identity

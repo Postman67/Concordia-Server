@@ -159,6 +159,27 @@ export async function resolvePermissions(
   return base;
 }
 
+/**
+ * Returns the highest role position held by a user (excluding @everyone).
+ * The server owner always returns Infinity so they are never blocked by the
+ * hierarchy check when deleting messages from any other member.
+ *
+ * Used to enforce: a moderator cannot delete messages from users whose
+ * highest role position is >= their own.
+ */
+export async function getTopRolePosition(userId: string): Promise<number> {
+  if (await isAdmin(userId)) return Infinity;
+
+  const result = await pool.query<{ max_position: number | null }>(
+    `SELECT MAX(r.position) AS max_position
+     FROM roles r
+     JOIN member_roles mr ON mr.role_id = r.id
+     WHERE mr.user_id = $1 AND r.is_everyone = FALSE`,
+    [userId],
+  );
+  return result.rows[0]?.max_position ?? 0;
+}
+
 /** Returns true if `perms` contains all bits in `required`. */
 export function hasPermission(perms: bigint, required: bigint): boolean {
   return (perms & required) === required;
