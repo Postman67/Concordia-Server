@@ -9,13 +9,16 @@ import rateLimit from 'express-rate-limit';
 import { pool } from './config/database';
 import { runMigrations } from './db/migrate';
 import { getSettings, updateSettings } from './config/server';
+import { ensureMediaDirs } from './config/media';
 import { initializeSocket } from './socket';
 import { setIO } from './socket/broadcast';
+import cdnRouter from './cdn';
 import serverRoutes from './routes/server';
 import categoryRoutes from './routes/categories';
 import channelRoutes from './routes/channels';
 import messageRoutes from './routes/messages';
 import roleRoutes from './routes/roles';
+import uploadRoutes from './routes/upload';
 
 const app = express();
 const httpServer = createServer(app);
@@ -31,6 +34,9 @@ app.use(helmet());
 app.use(cors({ origin: clientOrigin }));
 app.use(express.json());
 
+// ── CDN (static media) — mounted before API rate limiter ─────────────────────
+app.use('/cdn', cdnRouter);
+
 // Rate-limit all API routes (100 req / 15 min per IP)
 app.use(
   '/api/',
@@ -43,6 +49,7 @@ app.use('/api/categories', categoryRoutes);
 app.use('/api/channels', channelRoutes);
 app.use('/api/messages', messageRoutes);
 app.use('/api/roles', roleRoutes);
+app.use('/api/upload', uploadRoutes);
 
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
@@ -57,6 +64,8 @@ const PORT = parseInt(process.env.PORT || '3000', 10);
 const HOST = process.env.HOST || '0.0.0.0';
 
 async function start(): Promise<void> {
+  ensureMediaDirs();
+
   try {
     await pool.query('SELECT 1'); // verify DB is reachable
     console.log('[db] connected');

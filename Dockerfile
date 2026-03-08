@@ -23,6 +23,10 @@ RUN npm ci --omit=dev
 COPY --from=builder /app/dist ./dist
 COPY migrations ./migrations
 
+# Media storage directory (override with MEDIA_PATH env var if needed)
+RUN mkdir -p /data/media
+VOLUME ["/data/media"]
+
 EXPOSE 3000
 
 CMD ["node", "dist/index.js"]

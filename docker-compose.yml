@@ -38,9 +38,14 @@ services:
       # emergency recovery override at any time).
       ADMIN_USER_ID: ${ADMIN_USER_ID:-0}
       CLIENT_ORIGIN: ${CLIENT_ORIGIN:-*}
+      # Path inside the container where uploaded media (icons, etc.) is stored
+      MEDIA_PATH: /data/media
+    volumes:
+      - media_data:/data/media
     depends_on:
       db:
         condition: service_healthy
 
 volumes:
   postgres_data:
+  media_data:

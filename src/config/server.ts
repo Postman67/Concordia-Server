@@ -5,12 +5,15 @@ export interface ServerSettings {
   description: string;
   /** Federation user UUID of the server owner / primary admin. Empty string = unset. */
   admin_user_id: string;
+  /** Filename of the server icon stored under MEDIA_PATH/icon/. Empty string = no icon. */
+  icon: string;
 }
 
 const DEFAULTS: ServerSettings = {
   name: 'Concordia Server',
   description: '',
   admin_user_id: '',
+  icon: '',
 };
 
 const CACHE_TTL_MS = 30_000;
@@ -37,6 +40,7 @@ export async function getSettings(): Promise<ServerSettings> {
       name:          map['name']          ?? DEFAULTS.name,
       description:   map['description']   ?? DEFAULTS.description,
       admin_user_id: map['admin_user_id'] ?? DEFAULTS.admin_user_id,
+      icon:          map['icon']          ?? DEFAULTS.icon,
     };
 
     _cache = { data, expiresAt: Date.now() + CACHE_TTL_MS };

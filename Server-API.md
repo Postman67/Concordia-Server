@@ -48,9 +48,12 @@ Public. Returns server metadata and current member count.
 {
   "name": "My Concordia Server",
   "description": "A place to chat.",
-  "member_count": 42
+  "member_count": 42,
+  "icon_url": "/cdn/icon/server.png"
 }
 ```
+
+> `icon_url` is `null` when no icon has been uploaded.
 
 ---
 
@@ -749,7 +752,7 @@ These events are broadcast to **all connected clients** whenever an admin or mod
 
 | Event | Payload | Trigger |
 |-------|---------|----|
-| `server:updated` | `{ name, description }` | `PATCH /api/server/settings` (name or description changed) |
+| `server:updated` | `{ name?, description?, icon_url? }` | `PATCH /api/server/settings` (name or description changed); `POST`/`DELETE /api/upload/icon` (icon changed) |
 
 #### Categories
 
@@ -821,6 +824,68 @@ socket.on('error', ({ message }) => console.error('Server error:', message));
 
 ---
 
+## CDN — `/cdn`
+
+The server doubles as a mini CDN for served media files. All content under `/cdn` is served as public static files with `Cross-Origin-Resource-Policy: cross-origin` so clients on different origins can load them directly.
+
+| Sub-path | Purpose |
+|----------|---------|
+| `/cdn/icon/*` | Server icon (managed via the upload API) |
+| `/cdn/emoji/*` | Custom emoji (reserved — not yet implemented) |
+| `/cdn/stickers/*` | Sticker packs (reserved — not yet implemented) |
+| `/cdn/images/*` | Image attachments (reserved — not yet implemented) |
+| `/cdn/videos/*` | Video attachments (reserved — not yet implemented) |
+| `/cdn/gifs/*` | GIF attachments (reserved — not yet implemented) |
+
+Files are stored in the directory pointed to by the `MEDIA_PATH` environment variable (default `./media`). Each sub-path maps directly to a subfolder: `<MEDIA_PATH>/icon/`, `<MEDIA_PATH>/emoji/`, etc.
+
+> **Icon URL format** — `icon_url` returned by `/api/server/info` is a root-relative path (e.g. `/cdn/icon/server.png`). Prepend the server origin on the client side.
+
+---
+
+## Upload — `/api/upload`
+
+Endpoints for managing uploaded server media. All require authentication and the `MANAGE_SERVER` permission.
+
+### `POST /api/upload/icon` 🔒
+
+Uploads (or replaces) the server icon. Send as `multipart/form-data` with the file in the `icon` field.
+
+**Allowed types:** `image/png`, `image/jpeg`, `image/gif`, `image/webp`  
+**Max size:** 8 MB  
+**Required permission:** `MANAGE_SERVER`
+
+The file is always stored as `server.<ext>` (e.g. `server.png`). If a previous icon with a different extension exists it is deleted automatically.
+
+**`200 OK`**
+```json
+{ "icon_url": "/cdn/icon/server.png" }
+```
+
+**Error responses**
+
+| Status | Meaning |
+|--------|---------|
+| `400` | No file provided, wrong MIME type, or file exceeds 8 MB |
+| `403` | Missing `MANAGE_SERVER` permission |
+
+---
+
+### `DELETE /api/upload/icon` 🔒
+
+Removes the current server icon and clears the setting.
+
+**Required permission:** `MANAGE_SERVER`
+
+**`204 No Content`** on success.
+
+| Status | Meaning |
+|--------|---------|
+| `404` | No icon is currently set |
+| `403` | Missing `MANAGE_SERVER` permission |
+
+---
+
 ## First-time setup
 
 All server settings are stored in the database and managed from the client. The workflow for a fresh deployment is:
@@ -846,6 +911,7 @@ All server settings are stored in the database and managed from the client. The 
 | `FEDERATION_URL` | `https://federation.concordiachat.com` | Override for local Federation instances |
 | `ADMIN_USER_ID` | `` | Bootstrap admin on first deploy (seeds DB if `admin_user_id` is unset). Must be a valid Federation user UUID. Also acts as a permanent emergency override when set. |
 | `CLIENT_ORIGIN` | `*` | CORS allowed origin |
+| `MEDIA_PATH` | `./media` | Absolute or relative path where uploaded media files (icons, etc.) are stored. Resolved relative to the process working directory when not absolute. |
 
 Server name, description, and admin are stored in the `server_settings` database table and managed via `PATCH /api/server/settings`. The only **required** env var for a fresh deployment is `DB_PASSWORD`.
 
@@ -861,3 +927,6 @@ The schema and all migrations are applied automatically at startup by the built-
 | `002_federation_auth.sql` | Upgrade path from original `users`-table schema |
 | `003_categories_roles.sql` | Adds `role` to members, `position`/`category_id` to channels |
 | `004_server_settings.sql` | `server_settings` table for client-managed configuration |
+| `005_avatar_url.sql` | Adds `avatar_url` to members |
+| `006_permissions.sql` | Roles, member_roles, channel/category permission overrides |
+| `007_server_icon.sql` | Adds `icon` key to server_settings |

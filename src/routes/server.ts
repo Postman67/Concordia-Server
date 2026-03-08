@@ -18,6 +18,7 @@ router.get('/info', async (_req, res) => {
       name: config.name,
       description: config.description,
       member_count: parseInt(countResult.rows[0].count, 10),
+      icon_url: config.icon ? `/cdn/icon/${config.icon}` : null,
     });
   } catch (err) {
     console.error('[server/info]', err);
