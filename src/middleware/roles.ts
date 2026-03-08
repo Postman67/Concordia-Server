@@ -1,49 +1,91 @@
 import { Response, NextFunction } from 'express';
-import { pool } from '../config/database';
 import { isAdmin } from '../config/server';
+import { resolvePermissions, hasPermission, Permissions, PermissionKey } from '../config/permissions';
 import { AuthRequest } from './auth';
 
-export type Role = 'member' | 'moderator' | 'admin';
-
-const ROLE_RANK: Record<Role, number> = { member: 0, moderator: 1, admin: 2 };
-
 /**
- * Returns the effective role for a user.
- * The server config owner is always 'admin' regardless of the DB value.
+ * Returns true if the user is the server admin (owner).
+ * Use this only for the narrow "owner-only" operations like changing admin_user_id.
  */
-export async function getMemberRole(userId: string): Promise<Role> {
-  if (await isAdmin(userId)) return 'admin';
-  try {
-    const result = await pool.query(
-      'SELECT role FROM members WHERE user_id = $1',
-      [userId],
-    );
-    return (result.rows[0]?.role as Role) ?? 'member';
-  } catch {
-    return 'member';
-  }
+export async function getMemberIsAdmin(userId: string): Promise<boolean> {
+  return isAdmin(userId);
 }
 
 /**
- * Express middleware factory. Ensures the authenticated user's role is
- * at least `minRole`. Must be placed after the `authenticate` middleware.
+ * Express middleware factory. Checks that the authenticated user has the
+ * given permission bit (resolved with all roles + overrides).
+ *
+ * @param permission - key from the Permissions map e.g. 'MANAGE_CHANNELS'
+ * @param channelId  - if provided, channel + category overrides are applied
  */
-export function requireRole(minRole: 'moderator' | 'admin') {
+export function requirePermission(
+  permission: PermissionKey,
+  getChannelId?: (req: AuthRequest) => number | undefined,
+) {
   return async (
     req: AuthRequest,
     res: Response,
     next: NextFunction,
   ): Promise<void> => {
     try {
-      const role = await getMemberRole(req.user!.id);
-      if (ROLE_RANK[role] >= ROLE_RANK[minRole]) {
+      const channelId = getChannelId ? getChannelId(req) : undefined;
+      const perms = await resolvePermissions(req.user!.id, channelId);
+      if (hasPermission(perms, Permissions[permission])) {
         next();
         return;
       }
       res.status(403).json({ error: 'Insufficient permissions' });
     } catch (err) {
-      console.error('[roles]', err);
+      console.error('[permissions]', err);
       res.status(500).json({ error: 'Internal server error' });
     }
   };
+}
+
+/**
+ * Convenience wrapper — requires the ADMINISTRATOR shortcut
+ * (server admin / owner only). Used for destructive or owner-level operations.
+ */
+export function requireAdmin() {
+  return async (
+    req: AuthRequest,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> => {
+    try {
+      if (await isAdmin(req.user!.id)) {
+        next();
+        return;
+      }
+      // Also allow if the user's resolved perms include ADMINISTRATOR bit
+      const perms = await resolvePermissions(req.user!.id);
+      if (hasPermission(perms, Permissions.ADMINISTRATOR)) {
+        next();
+        return;
+      }
+      res.status(403).json({ error: 'Insufficient permissions' });
+    } catch (err) {
+      console.error('[permissions]', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  };
+}
+
+// ── Legacy shim ───────────────────────────────────────────────────────────────
+// Kept so existing route files compile while being incrementally migrated.
+
+/** @deprecated Use requirePermission() instead. */
+export function requireRole(minRole: 'moderator' | 'admin') {
+  if (minRole === 'admin') return requireAdmin();
+
+  // 'moderator' maps to MANAGE_MESSAGES as a reasonable proxy
+  return requirePermission('MANAGE_MESSAGES');
+}
+
+/** @deprecated Use resolvePermissions() instead. */
+export async function getMemberRole(userId: string): Promise<'member' | 'moderator' | 'admin'> {
+  if (await isAdmin(userId)) return 'admin';
+  const perms = await resolvePermissions(userId);
+  if (hasPermission(perms, Permissions.MANAGE_MESSAGES)) return 'moderator';
+  return 'member';
 }

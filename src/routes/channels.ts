@@ -1,22 +1,31 @@
 import { Router } from 'express';
 import { pool } from '../config/database';
 import { authenticate, AuthRequest } from '../middleware/auth';
-import { requireRole } from '../middleware/roles';
+import { requirePermission } from '../middleware/roles';
+import { resolvePermissions, hasPermission, Permissions } from '../config/permissions';
 import { broadcast } from '../socket/broadcast';
 
 const router = Router();
 
-// GET /api/channels — list all channels with category info, ordered by category then position
-router.get('/', authenticate, async (_req, res) => {
+// GET /api/channels — list channels the authenticated user can see
+router.get('/', authenticate, async (req: AuthRequest, res) => {
   try {
-    const result = await pool.query(
+    const allChannels = await pool.query(
       `SELECT c.id, c.name, c.description, c.category_id, c.position, c.created_at,
               cat.name AS category_name, cat.position AS category_position
        FROM channels c
        LEFT JOIN categories cat ON cat.id = c.category_id
        ORDER BY COALESCE(cat.position, 999999), c.position, c.name`,
     );
-    res.json(result.rows);
+
+    // Filter to only channels this user has VIEW_CHANNELS permission for
+    const visible = await Promise.all(
+      allChannels.rows.map(async (ch) => {
+        const perms = await resolvePermissions(req.user!.id, ch.id as number);
+        return hasPermission(perms, Permissions.VIEW_CHANNELS) ? ch : null;
+      }),
+    );
+    res.json(visible.filter(Boolean));
   } catch (err) {
     console.error('[channels/list]', err);
     res.status(500).json({ error: 'Internal server error' });
@@ -25,7 +34,7 @@ router.get('/', authenticate, async (_req, res) => {
 
 // POST /api/channels — create a channel (admin only)
 // position is auto-assigned (appended to end of category) unless explicitly provided.
-router.post('/', authenticate, requireRole('admin'), async (req: AuthRequest, res) => {
+router.post('/', authenticate, requirePermission('MANAGE_CHANNELS'), async (req: AuthRequest, res) => {
   const { name, description, category_id, position } = req.body as {
     name?: string;
     description?: string;
@@ -88,7 +97,7 @@ router.post('/', authenticate, requireRole('admin'), async (req: AuthRequest, re
 // Body: array of { id: number, category_id: number | null, position: number }
 // The client sends the full desired layout after a drag-and-drop. All changes are
 // applied inside a single transaction so the sidebar never shows a partial state.
-router.put('/reorder', authenticate, requireRole('admin'), async (req: AuthRequest, res) => {
+router.put('/reorder', authenticate, requirePermission('MANAGE_CHANNELS'), async (req: AuthRequest, res) => {
   const items = req.body as unknown;
 
   if (!Array.isArray(items) || items.length === 0) {
@@ -139,7 +148,7 @@ router.put('/reorder', authenticate, requireRole('admin'), async (req: AuthReque
 });
 
 // PATCH /api/channels/:id — update name, description, category, or position (moderator or admin)
-router.patch('/:id', authenticate, requireRole('moderator'), async (req: AuthRequest, res) => {
+router.patch('/:id', authenticate, requirePermission('MANAGE_CHANNELS'), async (req: AuthRequest, res) => {
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) {
     res.status(400).json({ error: 'Invalid channel id' });
@@ -212,7 +221,7 @@ router.patch('/:id', authenticate, requireRole('moderator'), async (req: AuthReq
 });
 
 // DELETE /api/channels/:id — delete a channel (admin only)
-router.delete('/:id', authenticate, requireRole('admin'), async (req: AuthRequest, res) => {
+router.delete('/:id', authenticate, requirePermission('MANAGE_CHANNELS'), async (req: AuthRequest, res) => {
   const id = parseInt(req.params.id, 10);
 
   try {

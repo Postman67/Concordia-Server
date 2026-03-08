@@ -4,7 +4,7 @@
 > Clients log in via `https://federation.concordiachat.com` and pass the resulting JWT to this server.  
 > This server stores **no passwords, no emails** — only Federation user IDs.
 
-**Last updated on:** Saturday, March 7, 2026 at 16:10:00
+**Last updated on:** Saturday, March 7, 2026 at 17:00:00
 
 > **User IDs are UUIDs** (e.g. `"a3f8c21d-7e44-4b1c-9f02-3d5e6a8b1c0f"`). The Federation issues these on registration.
 
@@ -62,12 +62,12 @@ Joins the authenticated user to this server. Call this when a user adds the serv
 ```json
 {
   "message": "Joined server successfully.",
-  "role": "admin",
+  "is_admin": false,
   "server": { "name": "My Concordia Server", "description": "A place to chat." }
 }
 ```
 
-> `role` is the caller's **effective role** on this server (`"member"`, `"moderator"`, or `"admin"`). Use this value to decide whether to show the server settings UI.
+> `is_admin` is `true` only if the joining user matches the `admin_user_id` configured in server settings.
 
 **`401`** Missing/invalid federation token · **`500`** Server error
 
@@ -75,21 +75,21 @@ Joins the authenticated user to this server. Call this when a user adds the serv
 
 ### `GET /api/server/@me` 🔒
 
-Returns the authenticated user's member record and effective role on this server. Call this on client startup (after the initial join) or whenever you need to refresh the user's permissions — for example, after an admin changes `admin_user_id` via `PATCH /api/server/settings`.
+Returns the authenticated user's member record, admin flag, and assigned roles. Call this on client startup (after the initial join) or whenever permissions may have changed.
 
 **`200 OK`**
 ```json
 {
   "user_id": "a3f8c21d-7e44-4b1c-9f02-3d5e6a8b1c0f",
   "username": "petersmith",
-  "role": "member",
-  "effective_role": "admin",
   "avatar_url": "https://example.com/avatar.png",
-  "joined_at": "2026-03-07T10:00:00.000Z"
+  "joined_at": "2026-03-07T10:00:00.000Z",
+  "is_admin": false,
+  "roles": [
+    { "id": 2, "name": "Moderators", "color": "#3498db", "position": 1, "permissions": "48", "is_everyone": false }
+  ]
 }
 ```
-
-> `role` is the value stored in the database. `effective_role` is what the server actually enforces — it may be `"admin"` even if `role` is `"member"` when the user matches `admin_user_id` in server settings.
 
 **`401`** Missing/invalid federation token · **`404`** Not a member of this server · **`500`** Server error
 
@@ -97,43 +97,33 @@ Returns the authenticated user's member record and effective role on this server
 
 ### `GET /api/server/members` 🔒
 
-Returns the list of users who have joined this server, including their role.
+Returns the list of users who have joined this server, including their assigned custom roles.
 
 **`200 OK`**
 ```json
 {
   "members": [
-    { "user_id": "a3f8c21d-7e44-4b1c-9f02-3d5e6a8b1c0f", "username": "petersmith", "role": "admin",     "avatar_url": "https://example.com/avatar.png", "joined_at": "2026-03-07T10:00:00.000Z" },
-    { "user_id": "b1c2d3e4-1234-5678-9abc-def012345678", "username": "alice",       "role": "moderator", "avatar_url": null,                                "joined_at": "2026-03-07T10:05:00.000Z" },
-    { "user_id": "c3d4e5f6-abcd-ef01-2345-678901234567", "username": "bob",         "role": "member",    "avatar_url": null,                                "joined_at": "2026-03-07T10:10:00.000Z" }
+    {
+      "user_id": "a3f8c21d-7e44-4b1c-9f02-3d5e6a8b1c0f",
+      "username": "petersmith",
+      "avatar_url": "https://example.com/avatar.png",
+      "joined_at": "2026-03-07T10:00:00.000Z",
+      "roles": [
+        { "id": 2, "name": "Moderators", "color": "#3498db", "position": 1, "permissions": "48", "is_everyone": false }
+      ]
+    },
+    {
+      "user_id": "b1c2d3e4-1234-5678-9abc-def012345678",
+      "username": "alice",
+      "avatar_url": null,
+      "joined_at": "2026-03-07T10:05:00.000Z",
+      "roles": []
+    }
   ]
 }
 ```
 
 **`401`** Missing/invalid federation token · **`500`** Server error
-
----
-
-### `PUT /api/server/members/:userId/role` 🔒 *(admin only)*
-
-Assigns a role to a member. The configured admin (`admin_user_id`) cannot be demoted.
-
-**Request body**
-
-| Field | Type | Values |
-|-------|------|--------|
-| `role` | string | `"member"` · `"moderator"` · `"admin"` |
-
-```json
-{ "role": "moderator" }
-```
-
-**`200 OK`**
-```json
-{ "member": { "user_id": "b1c2d3e4-1234-5678-9abc-def012345678", "username": "alice", "role": "moderator", "avatar_url": null } }
-```
-
-**`400`** Invalid role · **`401`** Unauthorized · **`403`** Not admin / cannot demote server owner · **`404`** Member not found · **`500`** Server error
 
 ---
 
@@ -186,17 +176,230 @@ Updates one or more server settings. Only the fields you include are changed.
 
 ---
 
-## Roles
+## Roles — `/api/roles` 🔒
 
-Roles control what actions a user can perform on the server.
+Concordia uses a Discord-style granular permissions system. There are no predefined tiers — only custom roles and the special `@everyone` role.
 
-| Role | Permissions |
-|------|-------------|
-| `member` | Read channels, read/send messages, join server |
-| `moderator` | All of the above + rename channels and categories |
-| `admin` | All of the above + create/delete channels and categories, reorder channels and categories, assign roles, change server settings |
+### Permission flags
 
-> The user whose `user_id` matches `admin_user_id` in the `server_settings` table is **always** treated as admin, regardless of what is stored in the `members` table. If the `ADMIN_USER_ID` environment variable is set it overrides the database value (useful for emergency recovery).
+| Key | Bit | Description |
+|-----|-----|-------------|
+| `ADMINISTRATOR` | 1 | Grants all permissions. Only the server admin (owner) has this — **cannot** be assigned to a custom role. |
+| `VIEW_CHANNELS` | 2 | See channels in the sidebar and join them. |
+| `SEND_MESSAGES` | 4 | Post messages in text channels. |
+| `READ_MESSAGE_HISTORY` | 8 | Read past messages in a channel. |
+| `MANAGE_MESSAGES` | 16 | Edit or delete any user's message. |
+| `MANAGE_CHANNELS` | 32 | Create, edit, delete channels and their permission overrides. |
+| `MANAGE_CATEGORIES` | 64 | Create, edit, delete categories and their permission overrides. |
+| `MANAGE_ROLES` | 128 | Create, edit, delete and assign custom roles. |
+| `KICK_MEMBERS` | 256 | Remove members from the server. |
+| `BAN_MEMBERS` | 512 | Ban and unban members. |
+| `MANAGE_SERVER` | 1024 | Edit server name, description, and settings. |
+
+Permissions are stored as a bitmask `BIGINT`. Use bitwise OR to combine flags.
+
+```ts
+// @everyone with VIEW_CHANNELS + SEND_MESSAGES + READ_MESSAGE_HISTORY
+const everyone = 2 | 4 | 8; // = 14
+```
+
+**Permission resolution order** (highest priority last):
+1. Server admin (`admin_user_id`) → full access regardless of roles
+2. Union of all role permission bits (OR)
+3. Category overrides (deny bits stripped, then allow bits added)
+4. Channel overrides (deny bits stripped, then allow bits added)
+
+**Override states per role per channel/category**: 3-state — *allow* (bit in `allow_bits`), *deny* (bit in `deny_bits`), or *inherit* (bit absent from both).
+
+---
+
+### `GET /api/roles`
+
+Returns all roles ordered by position (descending — highest authority first).
+
+**`200 OK`**
+```json
+[
+  { "id": 1, "name": "@everyone", "color": null, "position": 0, "permissions": "14", "is_everyone": true, "created_at": "..." },
+  { "id": 2, "name": "Moderators", "color": "#3498db", "position": 1, "permissions": "48", "is_everyone": false, "created_at": "..." }
+]
+```
+
+---
+
+### `POST /api/roles` 🔒 *(requires `MANAGE_ROLES`)*
+
+Creates a custom role.
+
+**Request body**
+
+| Field | Type | Rules |
+|-------|------|-------|
+| `name` | string | Required. 1–64 chars. |
+| `color` | string \| null | Optional. Hex colour `#RRGGBB`. |
+| `position` | number | Optional integer. Defaults to highest + 1. |
+| `permissions` | number \| object | Optional. Bitmask integer **or** a map of `{ PERMISSION_KEY: true/false }`. Defaults to `0`. `ADMINISTRATOR` is silently stripped. |
+
+```json
+{ "name": "Moderators", "color": "#3498db", "permissions": { "MANAGE_MESSAGES": true, "MANAGE_CHANNELS": true } }
+```
+
+**`201 Created`** Returns the new role object.
+
+**`400`** Validation failed · **`401`** Unauthorized · **`403`** Missing `MANAGE_ROLES` permission · **`500`** Server error
+
+---
+
+### `PATCH /api/roles/:id` 🔒 *(requires `MANAGE_ROLES`)*
+
+Updates a role's name, colour, position, or permissions. Only sent fields are changed.
+
+**`200 OK`** Returns the updated role.
+
+**`400`** Validation failed · **`401`** Unauthorized · **`403`** Insufficient permissions · **`404`** Role not found · **`500`** Server error
+
+---
+
+### `DELETE /api/roles/:id` 🔒 *(requires `MANAGE_ROLES`)*
+
+Deletes a custom role. The `@everyone` role cannot be deleted.
+
+**`204 No Content`**
+
+**`401`** Unauthorized · **`403`** Cannot delete @everyone / insufficient permissions · **`404`** Role not found · **`500`** Server error
+
+---
+
+### `GET /api/roles/permissions`
+
+Returns all available permission keys and their bit values (as strings). Useful for building a permissions UI.
+
+**`200 OK`**
+```json
+[
+  { "key": "ADMINISTRATOR", "bit": "1" },
+  { "key": "VIEW_CHANNELS", "bit": "2" },
+  ...
+]
+```
+
+---
+
+### `GET /api/roles/members/:userId` 🔒
+
+Returns all roles currently assigned to the given member.
+
+**`200 OK`** Array of role objects.
+
+---
+
+### `PUT /api/roles/members/:userId` 🔒 *(requires `MANAGE_ROLES`)*
+
+Replaces the full set of custom roles assigned to a member (atomic swap).
+
+**Request body**
+```json
+{ "role_ids": [2, 3] }
+```
+
+Pass `{ "role_ids": [] }` to remove all custom roles.
+
+**`200 OK`**
+```json
+{ "user_id": "...", "roles": [ { ...roleObject } ] }
+```
+
+**`400`** Validation failed · **`403`** Cannot assign an ADMINISTRATOR role · **`404`** Member not found · **`500`** Server error
+
+---
+
+### `GET /api/roles/@me/permissions` 🔒
+
+Resolves and returns the calling user's effective permission bitmask. Optionally scoped to a channel.
+
+**Query parameters**
+
+| Param | Type | Description |
+|-------|------|-------------|
+| `channelId` | number | Optional. If provided, channel and category overrides are applied. |
+
+**`200 OK`**
+```json
+{
+  "bits": "14",
+  "resolved": {
+    "ADMINISTRATOR": false,
+    "VIEW_CHANNELS": true,
+    "SEND_MESSAGES": true,
+    "READ_MESSAGE_HISTORY": true,
+    "MANAGE_MESSAGES": false,
+    "MANAGE_CHANNELS": false,
+    "MANAGE_CATEGORIES": false,
+    "MANAGE_ROLES": false,
+    "KICK_MEMBERS": false,
+    "BAN_MEMBERS": false,
+    "MANAGE_SERVER": false
+  }
+}
+```
+
+---
+
+### `GET /api/roles/overrides/channel/:channelId` 🔒
+
+Returns all per-role permission overrides for a channel.
+
+**`200 OK`**
+```json
+[
+  { "role_id": 1, "role_name": "@everyone", "is_everyone": true, "allow_bits": "0", "deny_bits": "4" }
+]
+```
+
+---
+
+### `PUT /api/roles/overrides/channel/:channelId/:roleId` 🔒 *(requires `MANAGE_CHANNELS`)*
+
+Sets the allow/deny override for a specific role on a channel. A bit **cannot** appear in both `allow_bits` and `deny_bits` simultaneously.
+
+**Request body**
+```json
+{ "allow_bits": 2, "deny_bits": 4 }
+```
+
+**`200 OK`** Returns the updated override.
+
+**`400`** Bit conflict / invalid values · **`401`** Unauthorized · **`403`** Insufficient permissions · **`500`** Server error
+
+---
+
+### `DELETE /api/roles/overrides/channel/:channelId/:roleId` 🔒 *(requires `MANAGE_CHANNELS`)*
+
+Removes the override for a role on a channel (reverts to inherit).
+
+**`204 No Content`**
+
+---
+
+### `GET /api/roles/overrides/category/:categoryId` 🔒
+
+Returns all per-role permission overrides for a category.
+
+---
+
+### `PUT /api/roles/overrides/category/:categoryId/:roleId` 🔒 *(requires `MANAGE_CATEGORIES`)*
+
+Sets the allow/deny override for a specific role on a category.
+
+**Request body** — same shape as channel override.
+
+**`200 OK`** Returns the updated override.
+
+---
+
+### `DELETE /api/roles/overrides/category/:categoryId/:roleId` 🔒 *(requires `MANAGE_CATEGORIES`)*
+
+Removes the override for a role on a category.
 
 ---
 
@@ -570,8 +773,21 @@ These events are broadcast to **all connected clients** whenever an admin or mod
 
 | Event | Payload | Trigger |
 |-------|---------|----|
-| `member:role_updated` | `{ user_id, username, role }` | `PUT /api/server/members/:userId/role` |
+| `member:roles_updated` | `{ user_id, roles }` | `PUT /api/roles/members/:userId` |
+#### Roles
 
+| Event | Payload | Trigger |
+|-------|---------|----||
+| `role:created` | role object | `POST /api/roles` |
+| `role:updated` | role object | `PATCH /api/roles/:id` |
+| `role:deleted` | `{ id }` | `DELETE /api/roles/:id` |
+
+#### Permission overrides
+
+| Event | Payload | Trigger |
+|-------|---------|----||
+| `channel:overrides_updated` | `{ channel_id, role_id, allow_bits, deny_bits }` or `{ ..., deleted: true }` | `PUT`/`DELETE /api/roles/overrides/channel/:channelId/:roleId` |
+| `category:overrides_updated` | `{ category_id, role_id, allow_bits, deny_bits }` or `{ ..., deleted: true }` | `PUT`/`DELETE /api/roles/overrides/category/:categoryId/:roleId` |
 ```ts
 // Subscribe once on connect
 socket.on('server:updated',       (info)     => store.setServerInfo(info));
@@ -583,7 +799,12 @@ socket.on('channel:created',      (ch)       => store.addChannel(ch));
 socket.on('channel:updated',      (ch)       => store.updateChannel(ch));
 socket.on('channel:deleted',      ({ id })   => store.removeChannel(id));
 socket.on('channels:reordered',   (channels) => store.setChannels(channels));
-socket.on('member:role_updated',  (member)   => store.updateMemberRole(member));
+socket.on('member:roles_updated',      (payload) => store.updateMemberRoles(payload));
+socket.on('role:created',              (role)    => store.addRole(role));
+socket.on('role:updated',              (role)    => store.updateRole(role));
+socket.on('role:deleted',              ({ id })  => store.removeRole(id));
+socket.on('channel:overrides_updated', (ov)      => store.updateChannelOverride(ov));
+socket.on('category:overrides_updated',(ov)      => store.updateCategoryOverride(ov));
 ```
 
 ---

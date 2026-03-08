@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { pool } from '../config/database';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { getSettings, updateSettings, isAdmin } from '../config/server';
-import { requireRole, getMemberRole } from '../middleware/roles';
+import { requirePermission, requireAdmin } from '../middleware/roles';
 import { broadcast } from '../socket/broadcast';
 
 const router = Router();
@@ -40,13 +40,13 @@ router.post('/join', authenticate, async (req: AuthRequest, res) => {
       [id, username, avatar_url],
     );
 
-    const [config, role] = await Promise.all([
+    const [config, adminCheck] = await Promise.all([
       getSettings(),
-      getMemberRole(id),
+      isAdmin(id),
     ]);
     res.status(200).json({
       message: 'Joined server successfully.',
-      role,
+      is_admin: adminCheck,
       server: { name: config.name, description: config.description },
     });
   } catch (err) {
@@ -55,91 +55,79 @@ router.post('/join', authenticate, async (req: AuthRequest, res) => {
   }
 });
 
-// GET /api/server/@me — returns the authenticated user's member record and effective role
-// The client should call this on connect (or after admin settings change) to get
-// the current user's role without having to re-join the server.
+// GET /api/server/@me — returns the authenticated user's member record, is_admin flag, and assigned roles
 router.get('/@me', authenticate, async (req: AuthRequest, res) => {
   const { id } = req.user!;
   try {
-    const [row, role] = await Promise.all([
+    const [memberResult, adminCheck, rolesResult] = await Promise.all([
       pool.query(
-        'SELECT user_id, username, avatar_url, role, joined_at FROM members WHERE user_id = $1',
+        'SELECT user_id, username, avatar_url, joined_at FROM members WHERE user_id = $1',
         [id],
       ),
-      getMemberRole(id),
+      isAdmin(id),
+      pool.query(
+        `SELECT r.id, r.name, r.color, r.position, r.permissions::text AS permissions, r.is_everyone
+         FROM roles r
+         JOIN member_roles mr ON mr.role_id = r.id
+         WHERE mr.user_id = $1
+         ORDER BY r.position DESC`,
+        [id],
+      ),
     ]);
 
-    if (row.rows.length === 0) {
+    if (memberResult.rows.length === 0) {
       res.status(404).json({ error: 'Not a member of this server' });
       return;
     }
 
-    // effective_role may differ from the stored role when the user is the
-    // configured admin (env var / server_settings override).
-    res.json({ ...row.rows[0], effective_role: role });
+    res.json({
+      ...memberResult.rows[0],
+      is_admin: adminCheck,
+      roles: rolesResult.rows,
+    });
   } catch (err) {
     console.error('[server/@me]', err);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
 
-// GET /api/server/members — lists members with their roles
+// GET /api/server/members — lists members with their assigned roles
 router.get('/members', authenticate, async (_req, res) => {
   try {
-    const result = await pool.query(
-      'SELECT user_id, username, avatar_url, role, joined_at FROM members ORDER BY joined_at',
+    const membersResult = await pool.query(
+      'SELECT user_id, username, avatar_url, joined_at FROM members ORDER BY joined_at',
     );
-    res.json({ members: result.rows });
+
+    // Fetch all member_roles in one query and group them
+    const rolesResult = await pool.query(
+      `SELECT mr.user_id, r.id, r.name, r.color, r.position,
+              r.permissions::text AS permissions, r.is_everyone
+       FROM member_roles mr
+       JOIN roles r ON r.id = mr.role_id
+       ORDER BY r.position DESC`,
+    );
+
+    const rolesByUser: Record<string, typeof rolesResult.rows> = {};
+    for (const row of rolesResult.rows) {
+      if (!rolesByUser[row.user_id]) rolesByUser[row.user_id] = [];
+      const { user_id: _uid, ...roleData } = row;
+      rolesByUser[row.user_id].push(roleData);
+    }
+
+    const members = membersResult.rows.map(m => ({
+      ...m,
+      roles: rolesByUser[m.user_id] ?? [],
+    }));
+
+    res.json({ members });
   } catch (err) {
     console.error('[server/members]', err);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
 
-// PUT /api/server/members/:userId/role — assign a role to a member (admin only)
-router.put(
-  '/members/:userId/role',
-  authenticate,
-  requireRole('admin'),
-  async (req: AuthRequest, res) => {
-    const targetId = req.params.userId;
-    if (!targetId) {
-      res.status(400).json({ error: 'Invalid user id' });
-      return;
-    }
-
-    const { role } = req.body as { role?: string };
-    if (!role || !['member', 'moderator', 'admin'].includes(role)) {
-      res.status(400).json({ error: 'role must be member, moderator, or admin' });
-      return;
-    }
-
-    // Prevent demoting the server config owner
-    if (await isAdmin(targetId) && role !== 'admin') {
-      res.status(403).json({ error: 'Cannot change the role of the server owner' });
-      return;
-    }
-
-    try {
-      const result = await pool.query(
-        'UPDATE members SET role = $1 WHERE user_id = $2 RETURNING user_id, username, role',
-        [role, targetId],
-      );
-      if (result.rows.length === 0) {
-        res.status(404).json({ error: 'Member not found' });
-        return;
-      }
-      broadcast('member:role_updated', result.rows[0]);
-      res.json({ member: result.rows[0] });
-    } catch (err) {
-      console.error('[server/members/role]', err);
-      res.status(500).json({ error: 'Internal server error' });
-    }
-  },
-);
-
 // GET /api/server/settings — returns all admin-configurable settings (admin only)
-router.get('/settings', authenticate, requireRole('admin'), async (_req, res) => {
+router.get('/settings', authenticate, requireAdmin(), async (_req, res) => {
   try {
     const settings = await getSettings();
     res.json(settings);
@@ -153,7 +141,7 @@ router.get('/settings', authenticate, requireRole('admin'), async (_req, res) =>
 router.patch(
   '/settings',
   authenticate,
-  requireRole('admin'),
+  requireAdmin(),
   async (req: AuthRequest, res) => {
     const { name, description, admin_user_id } = req.body as {
       name?: unknown;

@@ -15,6 +15,7 @@ import serverRoutes from './routes/server';
 import categoryRoutes from './routes/categories';
 import channelRoutes from './routes/channels';
 import messageRoutes from './routes/messages';
+import roleRoutes from './routes/roles';
 
 const app = express();
 const httpServer = createServer(app);
@@ -41,6 +42,7 @@ app.use('/api/server', serverRoutes);
 app.use('/api/categories', categoryRoutes);
 app.use('/api/channels', channelRoutes);
 app.use('/api/messages', messageRoutes);
+app.use('/api/roles', roleRoutes);
 
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });

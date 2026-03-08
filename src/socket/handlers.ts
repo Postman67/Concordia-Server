@@ -1,5 +1,6 @@
 import { Server, Socket } from 'socket.io';
 import { pool } from '../config/database';
+import { resolvePermissions, hasPermission, Permissions } from '../config/permissions';
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Types
@@ -49,6 +50,13 @@ export function registerChatHandlers(io: Server, socket: Socket): void {
       );
       if (result.rows.length === 0) {
         socket.emit('error', { message: 'Channel not found' });
+        return;
+      }
+
+      // Permission check: VIEW_CHANNELS
+      const perms = await resolvePermissions(user.id, id);
+      if (!hasPermission(perms, Permissions.VIEW_CHANNELS)) {
+        socket.emit('error', { message: 'You do not have access to this channel' });
         return;
       }
 
@@ -111,6 +119,13 @@ export function registerChatHandlers(io: Server, socket: Socket): void {
       );
       if (channelCheck.rows.length === 0) {
         socket.emit('error', { message: 'Channel not found' });
+        return;
+      }
+
+      // Permission check: SEND_MESSAGES
+      const perms = await resolvePermissions(user.id, channelId);
+      if (!hasPermission(perms, Permissions.SEND_MESSAGES)) {
+        socket.emit('error', { message: 'You do not have permission to send messages in this channel' });
         return;
       }
 

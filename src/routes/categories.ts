@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { pool } from '../config/database';
 import { authenticate, AuthRequest } from '../middleware/auth';
-import { requireRole } from '../middleware/roles';
+import { requirePermission } from '../middleware/roles';
 import { broadcast } from '../socket/broadcast';
 
 const router = Router();
@@ -21,7 +21,7 @@ router.get('/', authenticate, async (_req, res) => {
 
 // POST /api/categories — create a category (admin only)
 // position is auto-assigned (appended to end) unless explicitly provided.
-router.post('/', authenticate, requireRole('admin'), async (req: AuthRequest, res) => {
+router.post('/', authenticate, requirePermission('MANAGE_CATEGORIES'), async (req: AuthRequest, res) => {
   const { name, position } = req.body as { name?: string; position?: number };
 
   if (!name || typeof name !== 'string' || name.length < 1 || name.length > 64) {
@@ -54,7 +54,7 @@ router.post('/', authenticate, requireRole('admin'), async (req: AuthRequest, re
 // Body: array of { id: number, position: number }
 // The client sends the full desired order (e.g. after a drag-and-drop), and the
 // server applies all changes inside a single transaction.
-router.put('/reorder', authenticate, requireRole('admin'), async (req: AuthRequest, res) => {
+router.put('/reorder', authenticate, requirePermission('MANAGE_CATEGORIES'), async (req: AuthRequest, res) => {
   const items = req.body as unknown;
 
   if (!Array.isArray(items) || items.length === 0) {
@@ -99,7 +99,7 @@ router.put('/reorder', authenticate, requireRole('admin'), async (req: AuthReque
 });
 
 // PATCH /api/categories/:id — rename or reposition a category (moderator or admin)
-router.patch('/:id', authenticate, requireRole('moderator'), async (req: AuthRequest, res) => {
+router.patch('/:id', authenticate, requirePermission('MANAGE_CATEGORIES'), async (req: AuthRequest, res) => {
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) {
     res.status(400).json({ error: 'Invalid category id' });
@@ -150,7 +150,7 @@ router.patch('/:id', authenticate, requireRole('moderator'), async (req: AuthReq
 
 // DELETE /api/categories/:id — delete a category (admin only)
 // Channels in the category become uncategorized (category_id → NULL).
-router.delete('/:id', authenticate, requireRole('admin'), async (req: AuthRequest, res) => {
+router.delete('/:id', authenticate, requirePermission('MANAGE_CATEGORIES'), async (req: AuthRequest, res) => {
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) {
     res.status(400).json({ error: 'Invalid category id' });

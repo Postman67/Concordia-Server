@@ -1,14 +1,12 @@
 import { Router } from 'express';
 import { pool } from '../config/database';
-import { authenticate } from '../middleware/auth';
+import { authenticate, AuthRequest } from '../middleware/auth';
+import { resolvePermissions, hasPermission, Permissions } from '../config/permissions';
 
 const router = Router();
 
 // GET /api/messages/:channelId
-// Query params:
-//   limit  — number of messages to return (default 50, max 200)
-//   before — ISO timestamp; returns messages older than this (pagination)
-router.get('/:channelId', authenticate, async (req, res) => {
+router.get('/:channelId', authenticate, async (req: AuthRequest, res) => {
   const channelId = parseInt(req.params.channelId, 10);
   const limit = Math.min(parseInt((req.query.limit as string) || '50', 10), 200);
   const before = req.query.before as string | undefined;
@@ -25,6 +23,17 @@ router.get('/:channelId', authenticate, async (req, res) => {
     );
     if (channelCheck.rows.length === 0) {
       res.status(404).json({ error: 'Channel not found' });
+      return;
+    }
+
+    // Permission check: user must be able to view this channel and read history
+    const perms = await resolvePermissions(req.user!.id, channelId);
+    if (!hasPermission(perms, Permissions.VIEW_CHANNELS)) {
+      res.status(403).json({ error: 'You do not have access to this channel' });
+      return;
+    }
+    if (!hasPermission(perms, Permissions.READ_MESSAGE_HISTORY)) {
+      res.status(403).json({ error: 'You cannot read message history in this channel' });
       return;
     }
 
