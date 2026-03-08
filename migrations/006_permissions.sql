@@ -64,13 +64,14 @@ ALTER TABLE members
 UPDATE members SET legacy_role = role WHERE legacy_role IS NULL;
 
 -- ── 5. Seed @everyone role ────────────────────────────────────────────────────
--- Default permissions: VIEW_CHANNELS | READ_MESSAGE_HISTORY | SEND_MESSAGES
---   VIEW_CHANNELS        = 1 << 0 = 1
---   SEND_MESSAGES        = 1 << 1 = 2
---   READ_MESSAGE_HISTORY = 1 << 2 = 4
--- Default bitmask = 7 (all three on for @everyone)
+-- Default permissions: VIEW_CHANNELS | SEND_MESSAGES | READ_MESSAGE_HISTORY
+--   ADMINISTRATOR        = 1 << 0 = 1   (NOT granted to @everyone)
+--   VIEW_CHANNELS        = 1 << 1 = 2
+--   SEND_MESSAGES        = 1 << 2 = 4
+--   READ_MESSAGE_HISTORY = 1 << 3 = 8
+-- Default bitmask = 14  (2 | 4 | 8)
 INSERT INTO roles (id, name, position, permissions, is_everyone)
-  VALUES (1, '@everyone', 0, 7, TRUE)
+  VALUES (1, '@everyone', 0, 14, TRUE)
   ON CONFLICT (id) DO NOTHING;
 
 -- Reset the sequence so new custom roles start from 2

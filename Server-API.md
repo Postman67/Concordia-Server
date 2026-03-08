@@ -1088,3 +1088,5 @@ The schema and all migrations are applied automatically at startup by the built-
 | `006_permissions.sql` | Roles, member_roles, channel/category permission overrides |
 | `007_server_icon.sql` | Adds `icon` key to server_settings |
 | `008_media_metrics.sql` | `media_metrics` table; adds `media_compression_level` to server_settings |
+| `009_message_edits.sql` | Adds `is_edited` column to `messages` |
+| `010_fix_everyone_permissions.sql` | Corrects `@everyone` permissions bitmask from `7` to `14` (`VIEW_CHANNELS \| SEND_MESSAGES \| READ_MESSAGE_HISTORY`) |

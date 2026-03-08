@@ -5,6 +5,21 @@ Most recent changes appear at the top.
 
 ---
 
+## Saturday, March 7, 2026 — 19:30
+
+### Fix: `@everyone` default permissions
+
+The `@everyone` role was seeded with bitmask `7` by migration `006`, which was written against an older bit layout. With the current layout in `permissions.ts` the value `7` resolves to `ADMINISTRATOR | VIEW_CHANNELS | SEND_MESSAGES` — granting the dangerous `ADMINISTRATOR` bit and omitting `READ_MESSAGE_HISTORY`.
+
+**Correct value is `14`** (`VIEW_CHANNELS=2 | SEND_MESSAGES=4 | READ_MESSAGE_HISTORY=8`).
+
+- `006_permissions.sql` comment and seed value corrected to `14` (affects fresh deployments).
+- `010_fix_everyone_permissions.sql` added — updates the live row from `7` → `14` only if it hasn't been intentionally customised (safe to re-run).
+
+> **Note:** The `EVERYONE_DEFAULT_PERMISSIONS` constant in `permissions.ts` was already correct (`14`) throughout.
+
+---
+
 ## Saturday, March 7, 2026 — 19:00
 
 ### Message Edit & Delete
