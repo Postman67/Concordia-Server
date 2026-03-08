@@ -7,6 +7,11 @@ export interface ServerSettings {
   admin_user_id: string;
   /** Filename of the server icon stored under MEDIA_PATH/icon/. Empty string = no icon. */
   icon: string;
+  /**
+   * Media compression level: 0 = disabled (store originals), 1–100 = optimization
+   * intensity. Higher values trade quality for smaller files.
+   */
+  media_compression_level: number;
 }
 
 const DEFAULTS: ServerSettings = {
@@ -14,6 +19,7 @@ const DEFAULTS: ServerSettings = {
   description: '',
   admin_user_id: '',
   icon: '',
+  media_compression_level: 0,
 };
 
 const CACHE_TTL_MS = 30_000;
@@ -37,10 +43,13 @@ export async function getSettings(): Promise<ServerSettings> {
     for (const row of result.rows) map[row.key] = row.value;
 
     const data: ServerSettings = {
-      name:          map['name']          ?? DEFAULTS.name,
-      description:   map['description']   ?? DEFAULTS.description,
-      admin_user_id: map['admin_user_id'] ?? DEFAULTS.admin_user_id,
-      icon:          map['icon']          ?? DEFAULTS.icon,
+      name:                   map['name']                   ?? DEFAULTS.name,
+      description:            map['description']            ?? DEFAULTS.description,
+      admin_user_id:          map['admin_user_id']          ?? DEFAULTS.admin_user_id,
+      icon:                   map['icon']                   ?? DEFAULTS.icon,
+      media_compression_level: map['media_compression_level'] !== undefined
+        ? parseInt(map['media_compression_level'], 10)
+        : DEFAULTS.media_compression_level,
     };
 
     _cache = { data, expiresAt: Date.now() + CACHE_TTL_MS };

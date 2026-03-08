@@ -144,10 +144,11 @@ router.patch(
   authenticate,
   requireAdmin(),
   async (req: AuthRequest, res) => {
-    const { name, description, admin_user_id } = req.body as {
+    const { name, description, admin_user_id, media_compression_level } = req.body as {
       name?: unknown;
       description?: unknown;
       admin_user_id?: unknown;
+      media_compression_level?: unknown;
     };
 
     const updates: Record<string, string> = {};
@@ -176,6 +177,15 @@ router.patch(
         return;
       }
       updates['admin_user_id'] = admin_user_id as string;
+    }
+
+    if (media_compression_level !== undefined) {
+      const level = Number(media_compression_level);
+      if (!Number.isInteger(level) || level < 0 || level > 100) {
+        res.status(400).json({ error: 'media_compression_level must be an integer between 0 and 100' });
+        return;
+      }
+      updates['media_compression_level'] = String(level);
     }
 
     if (Object.keys(updates).length === 0) {

@@ -4,7 +4,7 @@ import path from 'path';
 import fs from 'fs';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { requirePermission } from '../middleware/roles';
-import { MEDIA_PATH } from '../config/media';
+import { MEDIA_PATH, compressImageFile, recordMetric } from '../config/media';
 import { getSettings, updateSettings } from '../config/server';
 import { broadcast } from '../socket/broadcast';
 
@@ -73,6 +73,7 @@ router.post(
     }
 
     const newFilename = req.file.filename; // e.g. "server.png"
+    const uploadedPath = req.file.path;
 
     // Remove a stale icon with a different extension so only one icon file
     // ever lives in the directory.
@@ -86,6 +87,22 @@ router.post(
     } catch {
       // Non-fatal — proceed even if we can't clean up the old file
     }
+
+    // Apply compression if enabled
+    let finalBytes = req.file.size;
+    try {
+      const settings = await getSettings();
+      const level = settings.media_compression_level;
+      if (level > 0) {
+        const result = await compressImageFile(uploadedPath, level);
+        finalBytes = result.finalBytes;
+      }
+    } catch (err) {
+      console.warn('[upload/icon] compression failed, keeping original:', err);
+    }
+
+    // Record ingress metric (fire-and-forget)
+    recordMetric('upload', 'icon', newFilename, finalBytes).catch(console.error);
 
     await updateSettings({ icon: newFilename });
 
@@ -114,6 +131,9 @@ router.delete(
     } catch {
       // Non-fatal — file may already be gone
     }
+
+    // Record delete metric (fire-and-forget)
+    recordMetric('delete', 'icon', settings.icon, 0).catch(console.error);
 
     await updateSettings({ icon: '' });
     broadcast('server:updated', { icon_url: null });

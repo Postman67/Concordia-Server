@@ -158,6 +158,7 @@ Updates one or more server settings. Only the fields you include are changed.
 | `name` | string | 1–100 chars. |
 | `description` | string | 0–500 chars. |
 | `admin_user_id` | string | Valid UUID (Federation user ID of the new admin), or `""` to unset. |
+| `media_compression_level` | integer | 0–100. `0` = disabled (store originals). `1–100` = optimization level; higher values produce smaller files at the cost of visual quality. See [Compression](#compression). |
 
 ```json
 { "name": "Main Hub", "description": "A place to hang out." }
@@ -169,7 +170,8 @@ Updates one or more server settings. Only the fields you include are changed.
 {
   "name": "Main Hub",
   "description": "A place to hang out.",
-  "admin_user_id": "a3f8c21d-7e44-4b1c-9f02-3d5e6a8b1c0f"
+  "admin_user_id": "a3f8c21d-7e44-4b1c-9f02-3d5e6a8b1c0f",
+  "media_compression_level": 40
 }
 ```
 
@@ -839,7 +841,27 @@ The server doubles as a mini CDN for served media files. All content under `/cdn
 
 Files are stored in the directory pointed to by the `MEDIA_PATH` environment variable (default `./media`). Each sub-path maps directly to a subfolder: `<MEDIA_PATH>/icon/`, `<MEDIA_PATH>/emoji/`, etc.
 
+Every download served from `/cdn` is automatically recorded in the metrics table for egress tracking.
+
 > **Icon URL format** — `icon_url` returned by `/api/server/info` is a root-relative path (e.g. `/cdn/icon/server.png`). Prepend the server origin on the client side.
+
+---
+
+## Compression
+
+The server can automatically compress uploaded images using [sharp](https://sharp.pixelplumbing.com/). Compression is controlled by the `media_compression_level` setting (configured via `PATCH /api/server/settings`).
+
+| Level | Behaviour |
+|-------|-----------|
+| `0` | **Disabled.** Files stored exactly as uploaded — no processing. |
+| `1–100` | **Enabled.** Higher values apply more compression. Quality = `100 − level × 0.5` (range 50–99), so even at the maximum level the quality floor is 50. |
+
+**Supported formats for compression:** JPEG (uses MozJPEG encoder), PNG, WebP  
+**Skipped formats:** GIF, and any format not in the above list — stored as-is regardless of level.
+
+Files are only replaced when the compressed result is smaller than the original (so re-encoding never inflates a file).
+
+Use `POST /api/cdn/optimize` to retroactively compress files that were uploaded before compression was enabled.
 
 ---
 
@@ -883,6 +905,84 @@ Removes the current server icon and clears the setting.
 |--------|---------|
 | `404` | No icon is currently set |
 | `403` | Missing `MANAGE_SERVER` permission |
+
+---
+
+## CDN Management — `/api/cdn` 🔒
+
+All endpoints in this section require authentication and the `MANAGE_SERVER` permission.
+
+### `GET /api/cdn/health`
+
+Returns disk space available on the volume hosting `MEDIA_PATH` and the number of files stored per CDN subfolder.
+
+**`200 OK`**
+```json
+{
+  "media_path": "/data/media",
+  "disk_total_bytes": 107374182400,
+  "disk_used_bytes":  21474836480,
+  "disk_available_bytes": 85899345920,
+  "disk_usage_percent": 20.0,
+  "media_used_bytes": 45312,
+  "file_counts": {
+    "icon": 1,
+    "emoji": 0,
+    "stickers": 0,
+    "images": 0,
+    "videos": 0,
+    "gifs": 0
+  }
+}
+```
+
+> `disk_usage_percent` and disk byte fields may be `0` / `null` on environments where OS-level disk stats are unavailable.
+
+---
+
+### `GET /api/cdn/metrics`
+
+Returns ingress (upload) and egress (download) statistics tracked by the server.
+
+**`200 OK`**
+```json
+{
+  "totals": {
+    "upload":   { "count": 3, "bytes": 48200 },
+    "download": { "count": 120, "bytes": 5760000 },
+    "delete":   { "count": 1, "bytes": 0 }
+  },
+  "by_subfolder": [
+    { "subfolder": "icon", "event_type": "upload",   "count": 3, "bytes": 48200 },
+    { "subfolder": "icon", "event_type": "download", "count": 120, "bytes": 5760000 }
+  ],
+  "last_30_days": [
+    { "day": "2026-03-07", "event_type": "download", "count": 15, "bytes": 720000 }
+  ]
+}
+```
+
+---
+
+### `POST /api/cdn/optimize`
+
+Bulk-recompresses all eligible image files currently stored across all CDN subdirectories using the active `media_compression_level`. Useful after enabling compression for the first time, or after increasing the level.
+
+- Returns immediately with a summary. GIFs and unrecognised formats are skipped.
+- Files are only replaced when the compressed result is smaller (never inflates).
+- If `media_compression_level` is `0` the endpoint returns immediately with a message and `processed: 0`.
+
+**`200 OK`**
+```json
+{
+  "processed": 4,
+  "skipped": 1,
+  "errors": 0,
+  "bytes_before": 204800,
+  "bytes_after":  143360,
+  "bytes_saved":   61440
+}
+```
 
 ---
 
@@ -930,3 +1030,4 @@ The schema and all migrations are applied automatically at startup by the built-
 | `005_avatar_url.sql` | Adds `avatar_url` to members |
 | `006_permissions.sql` | Roles, member_roles, channel/category permission overrides |
 | `007_server_icon.sql` | Adds `icon` key to server_settings |
+| `008_media_metrics.sql` | `media_metrics` table; adds `media_compression_level` to server_settings |

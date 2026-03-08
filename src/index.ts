@@ -19,6 +19,7 @@ import channelRoutes from './routes/channels';
 import messageRoutes from './routes/messages';
 import roleRoutes from './routes/roles';
 import uploadRoutes from './routes/upload';
+import cdnManagementRoutes from './routes/cdn';
 
 const app = express();
 const httpServer = createServer(app);
@@ -50,6 +51,7 @@ app.use('/api/channels', channelRoutes);
 app.use('/api/messages', messageRoutes);
 app.use('/api/roles', roleRoutes);
 app.use('/api/upload', uploadRoutes);
+app.use('/api/cdn', cdnManagementRoutes);
 
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });

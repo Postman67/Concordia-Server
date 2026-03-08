@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import express from 'express';
 import path from 'path';
-import { MEDIA_PATH, CDN_SUBDIRS } from '../config/media';
+import { MEDIA_PATH, CDN_SUBDIRS, recordMetric } from '../config/media';
 
 const router = Router();
 
@@ -17,8 +17,16 @@ const staticOptions: Parameters<typeof express.static>[1] = {
 for (const subdir of CDN_SUBDIRS) {
   router.use(
     `/${subdir}`,
-    (_req, res, next) => {
+    (req, res, next) => {
       res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+      // Track egress: hook into response finish to record bytes served
+      res.on('finish', () => {
+        if (res.statusCode === 200) {
+          const bytes = parseInt((res.getHeader('content-length') as string) || '0', 10);
+          const filename = path.basename(req.path) || '';
+          recordMetric('download', subdir, filename, bytes).catch(() => undefined);
+        }
+      });
       next();
     },
     express.static(path.join(MEDIA_PATH, subdir), staticOptions),
