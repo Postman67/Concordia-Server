@@ -4,7 +4,7 @@
 > Clients log in via `https://federation.concordiachat.com` and pass the resulting JWT to this server.  
 > This server stores **no passwords, no emails** — only Federation user IDs.
 
-**Last updated on:** Saturday, March 7, 2026 at 17:00:00
+**Last updated on:** Saturday, March 7, 2026 at 17:00:00 · [Changelog](server-api-changelog.md)
 
 > **User IDs are UUIDs** (e.g. `"a3f8c21d-7e44-4b1c-9f02-3d5e6a8b1c0f"`). The Federation issues these on registration.
 
