@@ -41,13 +41,13 @@ router.post('/join', authenticate, async (req: AuthRequest, res) => {
       [id, username, avatar_url],
     );
 
-    const [config, adminCheck] = await Promise.all([
+    const [config, ownerCheck] = await Promise.all([
       getSettings(),
       isAdmin(id),
     ]);
     res.status(200).json({
       message: 'Joined server successfully.',
-      is_admin: adminCheck,
+      is_owner: ownerCheck,
       server: { name: config.name, description: config.description },
     });
   } catch (err) {
@@ -56,11 +56,11 @@ router.post('/join', authenticate, async (req: AuthRequest, res) => {
   }
 });
 
-// GET /api/server/@me — returns the authenticated user's member record, is_admin flag, and assigned roles
+// GET /api/server/@me — returns the authenticated user's member record, is_owner flag, and assigned roles
 router.get('/@me', authenticate, async (req: AuthRequest, res) => {
   const { id } = req.user!;
   try {
-    const [memberResult, adminCheck, rolesResult] = await Promise.all([
+    const [memberResult, ownerCheck, rolesResult] = await Promise.all([
       pool.query(
         'SELECT user_id, username, avatar_url, joined_at FROM members WHERE user_id = $1',
         [id],
@@ -83,7 +83,7 @@ router.get('/@me', authenticate, async (req: AuthRequest, res) => {
 
     res.json({
       ...memberResult.rows[0],
-      is_admin: adminCheck,
+      is_owner: ownerCheck,
       roles: rolesResult.rows,
     });
   } catch (err) {
@@ -95,19 +95,27 @@ router.get('/@me', authenticate, async (req: AuthRequest, res) => {
 // GET /api/server/members — lists members with their assigned roles
 router.get('/members', authenticate, async (_req, res) => {
   try {
-    const membersResult = await pool.query(
-      'SELECT user_id, username, avatar_url, joined_at FROM members ORDER BY joined_at',
-    );
+    const [membersResult, rolesResult, settings] = await Promise.all([
+      pool.query(
+        'SELECT user_id, username, avatar_url, joined_at FROM members ORDER BY joined_at',
+      ),
+      pool.query(
+        `SELECT mr.user_id, r.id, r.name, r.color, r.position,
+                r.permissions::text AS permissions, r.is_everyone
+         FROM member_roles mr
+         JOIN roles r ON r.id = mr.role_id
+         ORDER BY r.position DESC`,
+      ),
+      getSettings(),
+    ]);
+
+    // Determine owner IDs without a per-member DB call
+    const envAdmin = process.env.ADMIN_USER_ID || '';
+    const ownerIds = new Set<string>();
+    if (envAdmin !== '') ownerIds.add(envAdmin);
+    if (settings.admin_user_id !== '') ownerIds.add(settings.admin_user_id);
 
     // Fetch all member_roles in one query and group them
-    const rolesResult = await pool.query(
-      `SELECT mr.user_id, r.id, r.name, r.color, r.position,
-              r.permissions::text AS permissions, r.is_everyone
-       FROM member_roles mr
-       JOIN roles r ON r.id = mr.role_id
-       ORDER BY r.position DESC`,
-    );
-
     const rolesByUser: Record<string, typeof rolesResult.rows> = {};
     for (const row of rolesResult.rows) {
       if (!rolesByUser[row.user_id]) rolesByUser[row.user_id] = [];
@@ -117,6 +125,7 @@ router.get('/members', authenticate, async (_req, res) => {
 
     const members = membersResult.rows.map(m => ({
       ...m,
+      is_owner: ownerIds.has(m.user_id),
       roles: rolesByUser[m.user_id] ?? [],
     }));
 

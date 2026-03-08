@@ -5,6 +5,23 @@ Most recent changes appear at the top.
 
 ---
 
+## Saturday, March 7, 2026 — 18:00
+
+### Server Owner Identity
+
+Introduced the concept of the **server owner** (`is_owner`) as a distinct, explicitly communicated identity.
+
+- `POST /api/server/join` — `is_admin` renamed to `is_owner`.
+- `GET /api/server/@me` — `is_admin` renamed to `is_owner`.
+- `GET /api/server/members` — each member object now includes `is_owner: boolean`, so clients can render owner badges without a separate request.
+- `GET /api/roles/@me/permissions` — response now includes `is_owner: boolean`. When `true`, `bits` equals `ALL_PERMISSIONS` and every `resolved` entry is `true`.
+
+The owner is determined by `admin_user_id` in `server_settings` **or** the `ADMIN_USER_ID` env var (permanent override). The owner always receives every permission via `resolvePermissions()` regardless of role assignments.
+
+> **Breaking change:** `is_admin` field removed from `/join` and `/@me` responses. Clients must use `is_owner`.
+
+---
+
 ## Saturday, March 7, 2026 — 17:00
 
 ### CDN Management — Health, Metrics & Compression

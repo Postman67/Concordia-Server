@@ -65,12 +65,12 @@ Joins the authenticated user to this server. Call this when a user adds the serv
 ```json
 {
   "message": "Joined server successfully.",
-  "is_admin": false,
+  "is_owner": false,
   "server": { "name": "My Concordia Server", "description": "A place to chat." }
 }
 ```
 
-> `is_admin` is `true` only if the joining user matches the `admin_user_id` configured in server settings.
+> `is_owner` is `true` when the joining user is the server owner (matches `admin_user_id` in settings or the `ADMIN_USER_ID` env var). The owner has every permission enabled regardless of roles.
 
 **`401`** Missing/invalid federation token · **`500`** Server error
 
@@ -78,7 +78,7 @@ Joins the authenticated user to this server. Call this when a user adds the serv
 
 ### `GET /api/server/@me` 🔒
 
-Returns the authenticated user's member record, admin flag, and assigned roles. Call this on client startup (after the initial join) or whenever permissions may have changed.
+Returns the authenticated user's member record, owner flag, and assigned roles. Call this on client startup (after the initial join) or whenever permissions may have changed.
 
 **`200 OK`**
 ```json
@@ -87,12 +87,14 @@ Returns the authenticated user's member record, admin flag, and assigned roles. 
   "username": "petersmith",
   "avatar_url": "https://example.com/avatar.png",
   "joined_at": "2026-03-07T10:00:00.000Z",
-  "is_admin": false,
+  "is_owner": false,
   "roles": [
     { "id": 2, "name": "Moderators", "color": "#3498db", "position": 1, "permissions": "48", "is_everyone": false }
   ]
 }
 ```
+
+> `is_owner: true` means the user is the server owner and has every permission. Use this to render an owner crown/badge in the client UI.
 
 **`401`** Missing/invalid federation token · **`404`** Not a member of this server · **`500`** Server error
 
@@ -111,6 +113,7 @@ Returns the list of users who have joined this server, including their assigned 
       "username": "petersmith",
       "avatar_url": "https://example.com/avatar.png",
       "joined_at": "2026-03-07T10:00:00.000Z",
+      "is_owner": true,
       "roles": [
         { "id": 2, "name": "Moderators", "color": "#3498db", "position": 1, "permissions": "48", "is_everyone": false }
       ]
@@ -120,11 +123,14 @@ Returns the list of users who have joined this server, including their assigned 
       "username": "alice",
       "avatar_url": null,
       "joined_at": "2026-03-07T10:05:00.000Z",
+      "is_owner": false,
       "roles": []
     }
   ]
 }
 ```
+
+> `is_owner: true` identifies the server owner. Use this to display a crown or special badge in member lists.
 
 **`401`** Missing/invalid federation token · **`500`** Server error
 
@@ -332,6 +338,7 @@ Resolves and returns the calling user's effective permission bitmask. Optionally
 ```json
 {
   "bits": "14",
+  "is_owner": false,
   "resolved": {
     "ADMINISTRATOR": false,
     "VIEW_CHANNELS": true,
@@ -347,6 +354,8 @@ Resolves and returns the calling user's effective permission bitmask. Optionally
   }
 }
 ```
+
+> When `is_owner` is `true`, `bits` will equal the value of `ALL_PERMISSIONS` and every `resolved` entry will be `true`.
 
 ---
 

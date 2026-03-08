@@ -483,15 +483,18 @@ router.get('/@me/permissions', authenticate, async (req: AuthRequest, res) => {
     : undefined;
 
   try {
-    const bits = await import('../config/permissions').then(m =>
-      m.resolvePermissions(req.user!.id, channelId),
-    );
+    const [bits, ownerCheck] = await Promise.all([
+      import('../config/permissions').then(m =>
+        m.resolvePermissions(req.user!.id, channelId),
+      ),
+      import('../config/server').then(m => m.isAdmin(req.user!.id)),
+    ]);
     // Return each permission's name and whether it's granted
     const resolved: Record<string, boolean> = {};
     for (const [key, bit] of Object.entries(Permissions)) {
       resolved[key] = (bits & bit) === bit;
     }
-    res.json({ bits: bits.toString(), resolved });
+    res.json({ bits: bits.toString(), resolved, is_owner: ownerCheck });
   } catch (err) {
     console.error('[roles/@me/permissions]', err);
     res.status(500).json({ error: 'Internal server error' });
