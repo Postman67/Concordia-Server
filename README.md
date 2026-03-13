@@ -101,3 +101,13 @@ Connect with `{ auth: { token: "<JWT>" } }`.
 | `DB_PASSWORD` | **yes** | — | Database password |
 | `JWT_SECRET` | **yes** | — | Secret for signing JWTs |
 | `CLIENT_ORIGIN` | no | `*` | CORS allowed origin |
+
+## Related repositories
+
+| Repo | Description |
+|---|---|
+| [Concordia](https://github.com/Postman67/Concordia) | Marketing frontend |
+| [Concordia-Federation](https://github.com/Postman67/Concordia-Federation) | Global identity — usernames, auth, server registry |
+| [Concordia-Client](https://github.com/Postman67/Concordia-Client) | User-facing chat application |
+| [Concordia-Server](https://github.com/Postman67/Concordia-Server) | Self-hostable server software |
+| [Concordia-Social](https://github.com/Postman67/Concordia-Social) | Friends and direct messaging service |
