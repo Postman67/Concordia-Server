@@ -18,6 +18,20 @@ fi
 echo "[postgres] Starting..."
 su-exec postgres pg_ctl -D "$PGDATA" -l /tmp/postgres.log start -w -t 30
 
+# Wait for TCP to be ready (pg_ctl -w only confirms the Unix socket)
+echo "[postgres] Waiting for TCP on localhost:5432..."
+for i in $(seq 1 30); do
+  if su-exec postgres pg_isready -h localhost -p 5432 -q 2>/dev/null; then
+    break
+  fi
+  if [ "$i" -eq 30 ]; then
+    echo "[postgres] ERROR: TCP not ready after 30 attempts — check /tmp/postgres.log"
+    cat /tmp/postgres.log
+    exit 1
+  fi
+  sleep 1
+done
+
 # ── Provision user + database (idempotent) ────────────────────────────────────
 echo "[postgres] Provisioning..."
 
