@@ -34,10 +34,11 @@ router.post('/join', authenticate, async (req: AuthRequest, res) => {
   const { id, username, avatar_url } = req.user!;
 
   try {
-    await pool.query(
+    const upsertResult = await pool.query(
       `INSERT INTO members (user_id, username, avatar_url)
        VALUES ($1, $2, $3)
-       ON CONFLICT (user_id) DO UPDATE SET username = EXCLUDED.username, avatar_url = EXCLUDED.avatar_url`,
+       ON CONFLICT (user_id) DO UPDATE SET username = EXCLUDED.username, avatar_url = EXCLUDED.avatar_url
+       RETURNING user_id, username, avatar_url, joined_at, (xmax = 0) AS is_new_member`,
       [id, username, avatar_url],
     );
 
@@ -45,6 +46,12 @@ router.post('/join', authenticate, async (req: AuthRequest, res) => {
       getSettings(),
       isAdmin(id),
     ]);
+
+    if (upsertResult.rows[0].is_new_member) {
+      const { user_id, username: uname, avatar_url: uavatar, joined_at } = upsertResult.rows[0];
+      broadcast('member:joined', { user_id, username: uname, avatar_url: uavatar, joined_at, is_owner: ownerCheck });
+    }
+
     res.status(200).json({
       message: 'Joined server successfully.',
       is_owner: ownerCheck,
@@ -52,6 +59,36 @@ router.post('/join', authenticate, async (req: AuthRequest, res) => {
     });
   } catch (err) {
     console.error('[server/join]', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// DELETE /api/server/@me — leave the server
+// The server owner cannot leave; they must transfer ownership first.
+router.delete('/@me', authenticate, async (req: AuthRequest, res) => {
+  const { id } = req.user!;
+
+  try {
+    const ownerCheck = await isAdmin(id);
+    if (ownerCheck) {
+      res.status(403).json({ error: 'The server owner cannot leave. Transfer ownership first.' });
+      return;
+    }
+
+    const result = await pool.query(
+      'DELETE FROM members WHERE user_id = $1 RETURNING user_id, username',
+      [id],
+    );
+
+    if (result.rows.length === 0) {
+      res.status(404).json({ error: 'Not a member of this server' });
+      return;
+    }
+
+    broadcast('member:left', { user_id: result.rows[0].user_id, username: result.rows[0].username });
+    res.status(200).json({ message: 'Left server successfully.' });
+  } catch (err) {
+    console.error('[server/DELETE @me]', err);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

@@ -72,6 +72,8 @@ Joins the authenticated user to this server. Call this when a user adds the serv
 
 > `is_owner` is `true` when the joining user is the server owner (matches `admin_user_id` in settings or the `ADMIN_USER_ID` env var). The owner has every permission enabled regardless of roles.
 
+**First-time joins** broadcast a [`member:joined`](#members-1) event to all connected clients. Subsequent calls (username cache refresh) are silent.
+
 **`401`** Missing/invalid federation token · **`500`** Server error
 
 ---
@@ -97,6 +99,21 @@ Returns the authenticated user's member record, owner flag, and assigned roles. 
 > `is_owner: true` means the user is the server owner and has every permission. Use this to render an owner crown/badge in the client UI.
 
 **`401`** Missing/invalid federation token · **`404`** Not a member of this server · **`500`** Server error
+
+---
+
+### `DELETE /api/server/@me` 🔒
+
+Removes the authenticated user from this server. The server owner cannot leave — they must transfer ownership via `PATCH /api/server/settings` first.
+
+Broadcasts a [`member:left`](#members-1) event to all connected clients.
+
+**`200 OK`**
+```json
+{ "message": "Left server successfully." }
+```
+
+**`401`** Missing/invalid federation token · **`403`** Owner cannot leave · **`404`** Not a member of this server · **`500`** Server error
 
 ---
 
@@ -835,6 +852,8 @@ These events are broadcast to **all connected clients** whenever an admin or mod
 
 | Event | Payload | Trigger |
 |-------|---------|----|
+| `member:joined` | `{ user_id, username, avatar_url, joined_at, is_owner }` | `POST /api/server/join` (first join only) |
+| `member:left` | `{ user_id, username }` | `DELETE /api/server/@me` |
 | `member:roles_updated` | `{ user_id, roles }` | `PUT /api/roles/members/:userId` |
 #### Roles
 
@@ -861,6 +880,10 @@ socket.on('channel:created',      (ch)       => store.addChannel(ch));
 socket.on('channel:updated',      (ch)       => store.updateChannel(ch));
 socket.on('channel:deleted',      ({ id })   => store.removeChannel(id));
 socket.on('channels:reordered',   (channels) => store.setChannels(channels));
+socket.on('member:joined',             (member)  => store.addMember(member));
+socket.on('member:left',               ({ user_id }) => store.removeMember(user_id));
+socket.on('member:joined',             (member)     => store.addMember(member));
+socket.on('member:left',               ({ user_id }) => store.removeMember(user_id));
 socket.on('member:roles_updated',      (payload) => store.updateMemberRoles(payload));
 socket.on('role:created',              (role)    => store.addRole(role));
 socket.on('role:updated',              (role)    => store.updateRole(role));

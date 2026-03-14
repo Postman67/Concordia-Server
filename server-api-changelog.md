@@ -5,6 +5,15 @@ Most recent changes appear at the top.
 
 ---
 
+## Friday, March 13, 2026
+
+### Member join/leave WebSocket events
+- `POST /api/server/join` now broadcasts `member:joined` (`{ user_id, username, avatar_url, joined_at, is_owner }`) to all connected clients on first join; subsequent calls (username cache refresh) are silent
+- New `DELETE /api/server/@me` endpoint — removes the calling user from the server and broadcasts `member:left` (`{ user_id, username }`)
+- The server owner is blocked from leaving (`403`) until ownership is transferred
+
+---
+
 ## Saturday, March 7, 2026 — 19:30
 
 ### Fix: `@everyone` default permissions
