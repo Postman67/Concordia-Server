@@ -117,6 +117,85 @@ Broadcasts a [`member:left`](#members-1) event to all connected clients.
 
 ---
 
+### `POST /api/server/load` 🔒
+
+**Single-call server initialisation.** Replaces the eight separate requests a client would normally make when selecting a server. Upserts the caller into `members` (same as `POST /join`) then fires all data queries in parallel.
+
+> This is the recommended way to load a server. Calling it on every server-select ensures the user's display name and avatar stay in sync with Federation.
+
+**`200 OK`**
+```json
+{
+  "server": {
+    "name": "My Concordia Server",
+    "description": "A place to chat.",
+    "member_count": 42,
+    "icon_url": "/cdn/icon/server.webp"
+  },
+  "me": {
+    "user_id": "a3f8c21d-7e44-4b1c-9f02-3d5e6a8b1c0f",
+    "username": "petersmith",
+    "avatar_url": "https://example.com/avatar.png",
+    "joined_at": "2026-03-07T10:00:00.000Z",
+    "is_owner": false,
+    "roles": [
+      { "id": 2, "name": "Moderators", "color": "#3498db", "position": 1, "permissions": "48", "is_everyone": false }
+    ],
+    "permissions": {
+      "bits": "62",
+      "resolved": {
+        "ADMINISTRATOR": false,
+        "VIEW_CHANNELS": true,
+        "SEND_MESSAGES": true,
+        "READ_MESSAGE_HISTORY": true,
+        "MANAGE_MESSAGES": true,
+        "MANAGE_CHANNELS": false,
+        "MANAGE_CATEGORIES": false,
+        "MANAGE_ROLES": false,
+        "KICK_MEMBERS": false,
+        "BAN_MEMBERS": false,
+        "MANAGE_SERVER": false
+      }
+    }
+  },
+  "members": [
+    {
+      "user_id": "a3f8c21d-7e44-4b1c-9f02-3d5e6a8b1c0f",
+      "username": "petersmith",
+      "avatar_url": "https://example.com/avatar.png",
+      "joined_at": "2026-03-07T10:00:00.000Z",
+      "is_owner": true,
+      "roles": []
+    }
+  ],
+  "channels": [
+    {
+      "id": 1,
+      "name": "general",
+      "description": null,
+      "category_id": 1,
+      "position": 0,
+      "created_at": "2026-03-07T10:00:00.000Z",
+      "category_name": "Text Channels",
+      "category_position": 0
+    }
+  ],
+  "categories": [
+    { "id": 1, "name": "Text Channels", "position": 0, "created_at": "2026-03-07T10:00:00.000Z" }
+  ]
+}
+```
+
+**Notes**
+- `channels` is filtered to only the channels the calling user has `VIEW_CHANNELS` permission for (same as `GET /api/channels`).
+- `me.permissions` reflects server-level effective permissions (no channel override applied); use `GET /api/roles/@me/permissions?channelId=<id>` for channel-specific resolution.
+- If this is the user's first join, a [`member:joined`](#members-1) WebSocket event is broadcast to all connected clients.
+- The HTTP `200` response itself doubles as the health check — no separate `GET /health` call needed.
+
+**`401`** Missing/invalid federation token · **`500`** Server error
+
+---
+
 ### `GET /api/server/members` 🔒
 
 Returns the list of users who have joined this server, including their assigned custom roles.

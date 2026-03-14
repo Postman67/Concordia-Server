@@ -5,6 +5,16 @@ Most recent changes appear at the top.
 
 ---
 
+## Saturday, March 14, 2026
+
+### `POST /api/server/load` — single-call server initialisation
+- New endpoint that replaces eight separate requests (`POST /join`, `GET /@me`, `GET /info`, `GET /members`, `GET /api/channels`, `GET /api/categories`, `GET /api/roles/@me/permissions`, `GET /health`) with one
+- Upserts the caller into `members` then fires all data queries in parallel; channels filtered by `VIEW_CHANNELS` permission as usual
+- Response contains `server`, `me` (with embedded `permissions`), `members`, `channels`, and `categories`
+- Broadcasts `member:joined` on first join (same as `POST /join`)
+
+---
+
 ## Friday, March 13, 2026
 
 ### Member join/leave WebSocket events

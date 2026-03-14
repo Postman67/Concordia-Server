@@ -4,6 +4,7 @@ import { authenticate, AuthRequest } from '../middleware/auth';
 import { getSettings, updateSettings, isAdmin } from '../config/server';
 import { requirePermission, requireAdmin } from '../middleware/roles';
 import { broadcast } from '../socket/broadcast';
+import { resolvePermissions, hasPermission, Permissions } from '../config/permissions';
 
 const router = Router();
 
@@ -253,5 +254,135 @@ router.patch(
     }
   },
 );
+
+// POST /api/server/load — single call that returns everything the client needs when selecting a server.
+// Equivalent to: POST /join + GET /@me + GET /info + GET /members + GET /channels + GET /categories
+//                + GET /roles/@me/permissions + GET /health — all in one round trip.
+router.post('/load', authenticate, async (req: AuthRequest, res) => {
+  const { id, username, avatar_url } = req.user!;
+
+  try {
+    // Step 1: Upsert member — must happen before parallel queries so the row exists for @me lookups.
+    const upsertResult = await pool.query(
+      `INSERT INTO members (user_id, username, avatar_url)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (user_id) DO UPDATE SET username = EXCLUDED.username, avatar_url = EXCLUDED.avatar_url
+       RETURNING user_id, username, avatar_url, joined_at, (xmax = 0) AS is_new_member`,
+      [id, username, avatar_url],
+    );
+    const { is_new_member: isNewMember, ...meRow } = upsertResult.rows[0] as {
+      user_id: string; username: string; avatar_url: string | null;
+      joined_at: string; is_new_member: boolean;
+    };
+
+    // Step 2: Fire all independent queries in parallel.
+    const [
+      settings,
+      ownerCheck,
+      myRolesResult,
+      allMembersResult,
+      memberRolesResult,
+      allChannelsResult,
+      categoriesResult,
+      permBits,
+    ] = await Promise.all([
+      getSettings(),
+      isAdmin(id),
+      pool.query(
+        `SELECT r.id, r.name, r.color, r.position, r.permissions::text AS permissions, r.is_everyone
+         FROM roles r
+         JOIN member_roles mr ON mr.role_id = r.id
+         WHERE mr.user_id = $1
+         ORDER BY r.position DESC`,
+        [id],
+      ),
+      pool.query(
+        'SELECT user_id, username, avatar_url, joined_at FROM members ORDER BY joined_at',
+      ),
+      pool.query(
+        `SELECT mr.user_id, r.id, r.name, r.color, r.position,
+                r.permissions::text AS permissions, r.is_everyone
+         FROM member_roles mr
+         JOIN roles r ON r.id = mr.role_id
+         ORDER BY r.position DESC`,
+      ),
+      pool.query(
+        `SELECT c.id, c.name, c.description, c.category_id, c.position, c.created_at,
+                cat.name AS category_name, cat.position AS category_position
+         FROM channels c
+         LEFT JOIN categories cat ON cat.id = c.category_id
+         ORDER BY COALESCE(cat.position, 999999), c.position, c.name`,
+      ),
+      pool.query(
+        'SELECT id, name, position, created_at FROM categories ORDER BY position, name',
+      ),
+      resolvePermissions(id),
+    ]);
+
+    // Step 3: Filter channels by VIEW_CHANNELS, resolving per-channel overrides in parallel.
+    const channelVisibility = await Promise.all(
+      allChannelsResult.rows.map(async (ch) => {
+        const chPerms = await resolvePermissions(id, ch.id as number);
+        return hasPermission(chPerms, Permissions.VIEW_CHANNELS) ? ch : null;
+      }),
+    );
+
+    // Assemble members list (same logic as GET /members)
+    const envAdmin = process.env.ADMIN_USER_ID || '';
+    const ownerIds = new Set<string>();
+    if (envAdmin !== '') ownerIds.add(envAdmin);
+    if (settings.admin_user_id !== '') ownerIds.add(settings.admin_user_id);
+
+    const rolesByUser: Record<string, object[]> = {};
+    for (const row of memberRolesResult.rows) {
+      if (!rolesByUser[row.user_id]) rolesByUser[row.user_id] = [];
+      const { user_id: _uid, ...roleData } = row;
+      rolesByUser[row.user_id].push(roleData);
+    }
+    const members = allMembersResult.rows.map(m => ({
+      ...m,
+      is_owner: ownerIds.has(m.user_id as string),
+      roles: rolesByUser[m.user_id as string] ?? [],
+    }));
+
+    // Resolved permissions map
+    const resolved: Record<string, boolean> = {};
+    for (const [key, bit] of Object.entries(Permissions)) {
+      resolved[key] = (permBits & bit) === bit;
+    }
+
+    // Broadcast member:joined only on first join
+    if (isNewMember) {
+      broadcast('member:joined', {
+        user_id: meRow.user_id,
+        username: meRow.username,
+        avatar_url: meRow.avatar_url,
+        joined_at: meRow.joined_at,
+        is_owner: ownerCheck,
+      });
+    }
+
+    res.json({
+      server: {
+        name: settings.name,
+        description: settings.description,
+        member_count: allMembersResult.rows.length,
+        icon_url: settings.icon ? `/cdn/icon/${settings.icon}` : null,
+      },
+      me: {
+        ...meRow,
+        is_owner: ownerCheck,
+        roles: myRolesResult.rows,
+        permissions: { bits: permBits.toString(), resolved },
+      },
+      members,
+      channels: channelVisibility.filter(Boolean),
+      categories: categoriesResult.rows,
+    });
+  } catch (err) {
+    console.error('[server/load]', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
 
 export default router;
