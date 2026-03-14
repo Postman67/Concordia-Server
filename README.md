@@ -5,6 +5,25 @@ Architecture is intentionally simple so the client team can build on top of it q
 
 ## Quick start (Docker — recommended)
 
+Two deployment modes are available. Both persist data via named Docker volumes.
+
+### Option A — Single container *(easiest)*
+
+PostgreSQL and the Node server run together in one image. No `.env` required for a basic setup.
+
+```bash
+# Start (builds on first run)
+docker compose -f docker-compose.single.yml up --build
+
+# The server is now available at http://localhost:3000
+```
+
+> Set `ADMIN_USER_ID` in a `.env` file (or inline) to bootstrap an admin account on first start.
+
+### Option B — Two containers *(recommended for production)*
+
+PostgreSQL and the server run as separate services, making it easier to back up the database, scale, or upgrade each component independently.
+
 ```bash
 # 1. Copy the env template and fill in the required values
 cp .env.example .env

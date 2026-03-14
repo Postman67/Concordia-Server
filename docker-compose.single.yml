@@ -1,0 +1,35 @@
+# Single-container deployment — PostgreSQL + Node in one image.
+# Build: docker compose -f docker-compose.single.yml up --build
+#
+# For a two-container setup (DB + server separated) use docker-compose.yml instead.
+
+services:
+  concordia:
+    build:
+      context: .
+      dockerfile: Dockerfile.single
+    restart: unless-stopped
+    ports:
+      - "${PORT:-3000}:3000"
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      HOST: 0.0.0.0
+      # Postgres runs on localhost inside the container — no password needed (trust auth)
+      DB_HOST: localhost
+      DB_PORT: 5432
+      DB_NAME: concordia
+      DB_USER: concordia
+      # URL of the Federation (override for local/self-hosted Federation instances)
+      FEDERATION_URL: ${FEDERATION_URL:-https://federation.concordiachat.com}
+      # Bootstrap admin: set this to your Federation user ID on the first deploy.
+      ADMIN_USER_ID: ${ADMIN_USER_ID:-0}
+      CLIENT_ORIGIN: ${CLIENT_ORIGIN:-*}
+      MEDIA_PATH: /data/media
+    volumes:
+      - concordia_db:/var/lib/postgresql/data
+      - concordia_media:/data/media
+
+volumes:
+  concordia_db:
+  concordia_media:

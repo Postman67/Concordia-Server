@@ -1,0 +1,42 @@
+# ── Build stage ───────────────────────────────────────────────────────────────
+FROM node:20-alpine AS builder
+
+WORKDIR /app
+
+COPY package*.json ./
+RUN npm ci
+
+COPY tsconfig.json ./
+COPY src ./src
+
+RUN npm run build
+
+# ── Single-container stage ────────────────────────────────────────────────────
+# Runs PostgreSQL 16 + the Node server in one container.
+# Suitable for simple self-hosted deployments; use the two-container
+# docker-compose.yml if you need to scale or back up the DB independently.
+FROM node:20-alpine
+
+# Install PostgreSQL and su-exec (used to drop privileges to the postgres user)
+RUN apk add --no-cache postgresql16 postgresql16-client su-exec
+
+WORKDIR /app
+
+COPY package*.json ./
+RUN npm ci --omit=dev
+
+COPY --from=builder /app/dist ./dist
+COPY migrations ./migrations
+
+COPY docker/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+# Postgres data dir + media storage
+RUN mkdir -p /data/media /var/lib/postgresql/data /run/postgresql \
+    && chown postgres:postgres /var/lib/postgresql/data /run/postgresql
+
+VOLUME ["/data/media", "/var/lib/postgresql/data"]
+
+EXPOSE 3000
+
+ENTRYPOINT ["/entrypoint.sh"]
