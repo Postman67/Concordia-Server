@@ -1,17 +1,17 @@
 #!/bin/bash
 # migrate-to-single.sh
 # Migrates an existing two-container Concordia stack (docker-compose.yml) to
-# the single-container stack (docker-compose.single.yml).
+# a single standalone container named "Concordia-Server".
 #
 # Usage: bash scripts/migrate-to-single.sh [--yes]
 #   --yes   Skip the confirmation prompt (useful for automation)
 #
 # What it does:
 #   1. Dumps the Postgres database from the running two-container stack
-#   2. Starts the single-container stack (fresh DB is auto-provisioned)
-#   3. Restores the dump into the new container
-#   4. Copies media files across to the new volume
-#   5. Prints a verification summary
+#   2. Builds the single-container image (Dockerfile.single)
+#   3. Starts a standalone container named "Concordia-Server"
+#   4. Restores the dump into the new container
+#   5. Copies media files across to the new volume
 #
 # The old stack is left stopped (not removed) so you can roll back if needed.
 # Old volumes (postgres_data, media_data) are NOT deleted by this script.
@@ -21,6 +21,10 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 BACKUP_FILE="$PROJECT_DIR/concordia_backup_$(date +%Y%m%d_%H%M%S).sql"
+CONTAINER_NAME="Concordia-Server"
+IMAGE_NAME="concordia-server"
+DB_VOL="concordia_db"
+MEDIA_VOL="concordia_media"
 
 # ── Colours ───────────────────────────────────────────────────────────────────
 GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; NC='\033[0m'
@@ -29,26 +33,39 @@ warn()    { echo -e "${YELLOW}[migrate]${NC} $*"; }
 fatal()   { echo -e "${RED}[migrate] ERROR:${NC} $*" >&2; exit 1; }
 
 # ── Preflight checks ──────────────────────────────────────────────────────────
-command -v docker >/dev/null 2>&1 || fatal "docker is not installed"
+command -v docker >/dev/null 2>&1   || fatal "docker is not installed"
 docker compose version >/dev/null 2>&1 || fatal "docker compose (v2) is not installed"
 
 cd "$PROJECT_DIR"
 
-[ -f docker-compose.yml ]        || fatal "docker-compose.yml not found (run from project root)"
-[ -f docker-compose.single.yml ] || fatal "docker-compose.single.yml not found"
+[ -f docker-compose.yml ]   || fatal "docker-compose.yml not found (run from project root)"
+[ -f Dockerfile.single ]    || fatal "Dockerfile.single not found"
+
+# ── Load .env for PORT / ADMIN_USER_ID / etc. (optional) ─────────────────────
+# Values are only used when launching the new container; the old stack reads
+# its own .env via docker compose.
+PORT="${PORT:-3000}"
+ADMIN_USER_ID="${ADMIN_USER_ID:-0}"
+FEDERATION_URL="${FEDERATION_URL:-https://federation.concordiachat.com}"
+CLIENT_ORIGIN="${CLIENT_ORIGIN:-*}"
+if [ -f "$PROJECT_DIR/.env" ]; then
+  # shellcheck disable=SC1091
+  set -a; source "$PROJECT_DIR/.env"; set +a
+fi
 
 # ── Confirm ───────────────────────────────────────────────────────────────────
 if [[ "${1:-}" != "--yes" ]]; then
   warn "This will:"
-  warn "  • Stop the two-container stack (postgres_data + media_data kept)"
-  warn "  • Start the single-container stack with fresh volumes"
-  warn "  • Restore your data into the new stack"
+  warn "  • Stop the two-container stack (its volumes are kept)"
+  warn "  • Build image '$IMAGE_NAME' from Dockerfile.single"
+  warn "  • Start a standalone container named '$CONTAINER_NAME'"
+  warn "  • Restore your data into the new container"
   echo
   read -r -p "Continue? [y/N] " answer
   [[ "$answer" =~ ^[Yy]$ ]] || { warn "Aborted."; exit 0; }
 fi
 
-# ── Step 1: Ensure old stack is up so we can dump ─────────────────────────────
+# ── Step 1: Ensure old stack is up so we can dump ────────────────────────────
 info "Step 1/5 — Starting old stack to verify it is reachable..."
 docker compose up -d
 
@@ -69,58 +86,89 @@ docker compose exec -T db pg_dump -U concordia concordia > "$BACKUP_FILE"
 DUMP_SIZE=$(du -sh "$BACKUP_FILE" | cut -f1)
 info "Dump complete (${DUMP_SIZE})."
 
-# ── Step 3: Stop old stack (keep volumes) ────────────────────────────────────
+# ── Step 3: Stop old stack + build new image ──────────────────────────────────
 info "Step 3/5 — Stopping old stack (volumes preserved)..."
 docker compose down
 
-# ── Step 4: Start new single-container stack ─────────────────────────────────
-info "Step 4/5 — Building and starting single-container stack..."
-docker compose -f docker-compose.single.yml up --build -d
+info "Building image '$IMAGE_NAME' from Dockerfile.single..."
+docker build -f Dockerfile.single -t "$IMAGE_NAME" .
 
-info "Waiting for the new container's server to be ready..."
+# Remove any pre-existing container with the same name
+if docker inspect "$CONTAINER_NAME" >/dev/null 2>&1; then
+  warn "Container '$CONTAINER_NAME' already exists — removing it..."
+  docker rm -f "$CONTAINER_NAME"
+fi
+
+# Create named volumes explicitly so they are identifiable
+docker volume create "$DB_VOL"    >/dev/null
+docker volume create "$MEDIA_VOL" >/dev/null
+
+info "Starting container '$CONTAINER_NAME'..."
+docker run -d \
+  --name "$CONTAINER_NAME" \
+  --restart unless-stopped \
+  -p "${PORT}:3000" \
+  -e NODE_ENV=production \
+  -e PORT=3000 \
+  -e HOST=0.0.0.0 \
+  -e DB_HOST=localhost \
+  -e DB_PORT=5432 \
+  -e DB_NAME=concordia \
+  -e DB_USER=concordia \
+  -e FEDERATION_URL="$FEDERATION_URL" \
+  -e ADMIN_USER_ID="$ADMIN_USER_ID" \
+  -e CLIENT_ORIGIN="$CLIENT_ORIGIN" \
+  -e MEDIA_PATH=/data/media \
+  -v "${DB_VOL}:/var/lib/postgresql/data" \
+  -v "${MEDIA_VOL}:/data/media" \
+  "$IMAGE_NAME"
+
+# ── Step 4: Wait for server to be healthy ─────────────────────────────────────
+info "Step 4/5 — Waiting for '$CONTAINER_NAME' to be ready..."
 for i in $(seq 1 60); do
-  if curl -sf http://localhost:${PORT:-3000}/health >/dev/null 2>&1; then
+  if curl -sf "http://localhost:${PORT}/health" >/dev/null 2>&1; then
     break
   fi
   if [ "$i" -eq 60 ]; then
-    fatal "New container did not become healthy in time. Check: docker compose -f docker-compose.single.yml logs"
+    fatal "Container did not become healthy in time. Check: docker logs $CONTAINER_NAME"
   fi
   sleep 3
 done
 
 # ── Step 5: Restore DB + copy media ──────────────────────────────────────────
 info "Step 5/5 — Restoring database..."
-# Drop and recreate the public schema to get a clean slate before restoring
-docker compose -f docker-compose.single.yml exec -T concordia \
+docker exec -i "$CONTAINER_NAME" \
   su-exec postgres psql -U concordia -d concordia \
   -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public; GRANT ALL ON SCHEMA public TO concordia;"
 
-docker compose -f docker-compose.single.yml exec -T concordia \
+docker exec -i "$CONTAINER_NAME" \
   su-exec postgres psql -U concordia -d concordia < "$BACKUP_FILE"
 
 info "Copying media files..."
-# Resolve compose project name to find the correct volume names
 PROJECT_NAME="$(basename "$PROJECT_DIR" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9_-')"
 OLD_MEDIA_VOL="${PROJECT_NAME}_media_data"
-NEW_MEDIA_VOL="${PROJECT_NAME}_concordia_media"
 
 if docker volume inspect "$OLD_MEDIA_VOL" >/dev/null 2>&1; then
   docker run --rm \
     -v "${OLD_MEDIA_VOL}:/from:ro" \
-    -v "${NEW_MEDIA_VOL}:/to" \
+    -v "${MEDIA_VOL}:/to" \
     alpine sh -c "cp -a /from/. /to/ && echo 'Media copied.'"
 else
-  warn "Old media volume '${OLD_MEDIA_VOL}' not found — skipping media copy (normal if no files were uploaded)."
+  warn "Old media volume '${OLD_MEDIA_VOL}' not found — skipping (normal if no files were uploaded)."
 fi
 
 # ── Summary ───────────────────────────────────────────────────────────────────
 echo
 info "Migration complete."
-info "  New stack:    docker compose -f docker-compose.single.yml ..."
-info "  Backup kept:  $BACKUP_FILE"
-info "  Old volumes (postgres_data, media_data) are untouched — remove manually when satisfied:"
+info "  Container:  $CONTAINER_NAME  (docker start/stop/logs $CONTAINER_NAME)"
+info "  Image:      $IMAGE_NAME"
+info "  Volumes:    $DB_VOL  |  $MEDIA_VOL"
+info "  Backup:     $BACKUP_FILE"
 echo
-echo "    docker volume rm ${PROJECT_NAME}_postgres_data ${PROJECT_NAME}_media_data"
+warn "Old volumes are untouched. Remove them manually once you are satisfied:"
+echo "  docker volume rm ${PROJECT_NAME}_postgres_data ${PROJECT_NAME}_media_data"
 echo
-info "  To roll back: docker compose -f docker-compose.single.yml down"
-info "                docker compose up -d"
+warn "To roll back:"
+echo "  docker stop $CONTAINER_NAME"
+echo "  docker compose up -d"
+
