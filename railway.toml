@@ -1,15 +1,57 @@
-# Railway deployment configuration
-# Builder: Railpack (https://railpack.com)
-# Add a PostgreSQL plugin in your Railway project — DATABASE_URL is injected automatically.
+# ── Railway deployment configuration ─────────────────────────────────────────
+# Builder: Railpack  https://railpack.com
 #
-# Required environment variables to set in Railway dashboard:
-#   ADMIN_USER_ID   — your Federation user ID (bootstrap admin on first deploy)
-#   FEDERATION_URL  — leave unset to use https://federation.concordiachat.com
-#   CLIENT_ORIGIN   — your frontend URL (e.g. https://app.concordiachat.com), or * for open
+# Railway runs the Node server only — Postgres is a separate Railway service
+# (add via "+ New" > "Database" > "PostgreSQL" in your project dashboard).
+# Railway injects DATABASE_URL automatically when the two services are in the
+# same project.
 #
-# Optional:
-#   DB_SSL=false    — disable SSL if your Railway Postgres is on a private internal network
-#   PORT            — Railway sets this automatically; do not override
+# ── Setup checklist ───────────────────────────────────────────────────────────
+#
+# 1. DATABASE (Postgres plugin)
+#    • In your Railway project click "+ New" → "Database" → "Add PostgreSQL"
+#    • Railway creates a managed Postgres instance and sets DATABASE_URL on
+#      every service in the same project automatically.
+#    • No further database configuration is needed.
+#
+# 2. VOLUME (persistent media — server icons, uploads)
+#    • In the Concordia-Server service settings go to "Volumes"
+#    • Click "Add Volume"
+#    • Mount path: /data/media
+#    • Railway will persist this directory across deploys and restarts.
+#    • Set MEDIA_PATH=/data/media in your service Variables (see below).
+#
+# 3. ENVIRONMENT VARIABLES (set in Railway service Variables tab)
+#
+#   Required:
+#     ADMIN_USER_ID   Your Federation user ID — bootstraps the server owner
+#                     on first deploy. Safe to remove after first login.
+#     CLIENT_ORIGIN   Your frontend URL e.g. https://app.concordiachat.com
+#                     Use * only for temporary testing.
+#     MEDIA_PATH      /data/media  (must match the volume mount path above)
+#
+#   Optional:
+#     FEDERATION_URL  Override only for self-hosted Federation instances.
+#                     Defaults to https://federation.concordiachat.com
+#     DB_SSL          Set to "false" only if Railway advises a private
+#                     internal network for your Postgres service (rare).
+#
+#   Do NOT set:
+#     DATABASE_URL    Injected automatically by Railway — do not override.
+#     PORT            Set automatically by Railway — do not override.
+#
+# ── How DATABASE_URL connects to the server ──────────────────────────────────
+# Railway's Postgres plugin exposes a DATABASE_URL in the form:
+#   postgresql://user:password@host:port/dbname?sslmode=require
+# database.ts reads DATABASE_URL first (before individual DB_* vars) and
+# connects with SSL enabled automatically. On startup, migrate.ts runs
+# migrations/001_schema.sql idempotently — no manual DB setup required.
+#
+# ── How the volume connects to the server ────────────────────────────────────
+# Railway mounts the volume at the path you specify (/data/media).
+# The server reads MEDIA_PATH at runtime to know where to store files.
+# Uploaded server icons (POST /api/upload/icon) are stored there and served
+# via the /cdn/* static routes. Without a volume, uploads are lost on redeploy.
 
 [build]
 builder = "railpack"

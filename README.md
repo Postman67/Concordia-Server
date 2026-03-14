@@ -35,8 +35,52 @@ docker compose up --build
 # 3. The server is now available at http://localhost:3000
 ```
 
-The first time Postgres starts it will automatically run `migrations/001_initial.sql`,
+The first time the server starts it will automatically run `migrations/001_schema.sql`,
 which creates the schema and seeds a **#general** channel.
+
+## Deploy to Railway
+
+Railway runs the **Node server** as a standard Railpack service. PostgreSQL is a separate
+Railway-managed database — no Docker or single-container image required.
+
+### 1. Create the project
+
+1. Push this repo to GitHub (or connect it in Railway directly)
+2. In Railway click **"+ New"** → **"GitHub Repo"** → select `Concordia-Server`
+3. Railway detects `railway.toml` and uses Railpack automatically
+
+### 2. Add PostgreSQL
+
+1. In your Railway project click **"+ New"** → **"Database"** → **"Add PostgreSQL"**
+2. Railway creates a managed Postgres instance and injects `DATABASE_URL` into every
+   service in the project automatically — no connection string to copy or configure
+3. The server connects on startup and runs migrations automatically
+
+### 3. Add a volume (persistent media)
+
+Railway's default filesystem is ephemeral — files are lost on redeploy. To persist
+uploaded server icons and media:
+
+1. Open the **Concordia-Server** service → **Volumes** tab
+2. Click **Add Volume**
+3. Set **Mount path** to `/data/media`
+4. In the **Variables** tab add `MEDIA_PATH=/data/media`
+
+The volume is mounted at that path at runtime and survives deploys and restarts.
+`MEDIA_PATH` tells the server where to read and write files.
+
+### 4. Set environment variables
+
+In the service **Variables** tab:
+
+| Variable | Required | Value |
+|---|---|---|
+| `ADMIN_USER_ID` | **yes** | Your Federation user UUID (bootstraps server owner on first deploy) |
+| `CLIENT_ORIGIN` | **yes** | Your frontend URL e.g. `https://app.concordiachat.com` |
+| `MEDIA_PATH` | **yes** | `/data/media` |
+| `FEDERATION_URL` | no | Only needed for self-hosted Federation — omit to use the public one |
+
+> `DATABASE_URL` and `PORT` are injected by Railway automatically. Do not set them.
 
 ## Local development (no Docker)
 
@@ -117,9 +161,11 @@ Connect with `{ auth: { token: "<JWT>" } }`.
 | `DB_PORT` | no | `5432` | Postgres port |
 | `DB_NAME` | no | `concordia` | Database name |
 | `DB_USER` | no | `concordia` | Database user |
-| `DB_PASSWORD` | **yes** | — | Database password |
-| `JWT_SECRET` | **yes** | — | Secret for signing JWTs |
+| `DB_PASSWORD` | yes *(Docker only)* | — | Database password |
+| `DATABASE_URL` | yes *(Railway / managed Postgres)* | — | Full Postgres connection string — injected automatically by Railway |
+| `DB_SSL` | no | auto | Set `false` to disable SSL when using `DATABASE_URL` |
 | `CLIENT_ORIGIN` | no | `*` | CORS allowed origin |
+| `MEDIA_PATH` | no | `./media` | Path for uploaded media files (set to `/data/media` on Railway) |
 
 ## Related repositories
 
