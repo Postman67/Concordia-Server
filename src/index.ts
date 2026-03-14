@@ -31,6 +31,9 @@ const io = new Server(httpServer, {
 });
 
 // ── HTTP middleware ────────────────────────────────────────────────────────────
+// Trust the first proxy hop (e.g. NGINX Proxy Manager). Required for
+// express-rate-limit to correctly identify client IPs from X-Forwarded-For.
+app.set('trust proxy', 1);
 app.use(helmet());
 app.use(cors({ origin: clientOrigin }));
 app.use(express.json());
