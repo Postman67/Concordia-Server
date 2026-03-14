@@ -54,7 +54,8 @@
 # via the /cdn/* static routes. Without a volume, uploads are lost on redeploy.
 
 [build]
-builder = "railpack"
+builder = "dockerfile"
+dockerfilePath = "Dockerfile"
 
 [deploy]
 startCommand = "node dist/index.js"

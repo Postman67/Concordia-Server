@@ -23,9 +23,9 @@ RUN npm ci --omit=dev
 COPY --from=builder /app/dist ./dist
 COPY migrations ./migrations
 
-# Media storage directory (override with MEDIA_PATH env var if needed)
+# Media storage directory — on Railway, attach a Volume with mount path /data/media
+# On self-hosted Docker, this directory is bind-mounted or managed via docker run -v
 RUN mkdir -p /data/media
-VOLUME ["/data/media"]
 
 EXPOSE 3000
 
