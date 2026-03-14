@@ -1,0 +1,22 @@
+# Railway deployment configuration
+# Builder: Railpack (https://railpack.com)
+# Add a PostgreSQL plugin in your Railway project — DATABASE_URL is injected automatically.
+#
+# Required environment variables to set in Railway dashboard:
+#   ADMIN_USER_ID   — your Federation user ID (bootstrap admin on first deploy)
+#   FEDERATION_URL  — leave unset to use https://federation.concordiachat.com
+#   CLIENT_ORIGIN   — your frontend URL (e.g. https://app.concordiachat.com), or * for open
+#
+# Optional:
+#   DB_SSL=false    — disable SSL if your Railway Postgres is on a private internal network
+#   PORT            — Railway sets this automatically; do not override
+
+[build]
+builder = "railpack"
+
+[deploy]
+startCommand = "node dist/index.js"
+healthcheckPath = "/health"
+healthcheckTimeout = 300
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 5
