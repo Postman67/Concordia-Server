@@ -137,12 +137,20 @@ done
 
 # ── Step 5: Restore DB + copy media ──────────────────────────────────────────
 info "Step 5/5 — Restoring database..."
-docker exec -i "$CONTAINER_NAME" \
+
+# Copy the dump into the container — avoids unreliable stdin piping via docker exec -i
+docker cp "$BACKUP_FILE" "${CONTAINER_NAME}:/tmp/restore.sql"
+
+docker exec "$CONTAINER_NAME" \
   su-exec postgres psql -U concordia -d concordia \
   -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public; GRANT ALL ON SCHEMA public TO concordia;"
 
-docker exec -i "$CONTAINER_NAME" \
-  su-exec postgres psql -U concordia -d concordia < "$BACKUP_FILE"
+# Restore using -f (file path) instead of stdin redirection
+docker exec "$CONTAINER_NAME" \
+  su-exec postgres psql -U concordia -d concordia -f /tmp/restore.sql
+
+# Clean up dump from container
+docker exec "$CONTAINER_NAME" rm /tmp/restore.sql
 
 info "Copying media files..."
 PROJECT_NAME="$(basename "$PROJECT_DIR" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9_-')"
